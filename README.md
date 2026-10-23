@@ -86,7 +86,6 @@ more memory and disk; Switch stays the default.
 
 - **First load can hang.** About 1 launch in 17 at 60 fps, the game stays on the loading screen after
   *Continue*. Quit (⌘Q) and launch again. It is more likely when the Mac is busy with other heavy work.
-- **Rare: a load (teleport, area change) can stay on the loading screen.** Quit (⌘Q) and launch again; the save is safe.
 - **120 fps** needs a 120 Hz display (MacBook Pro ProMotion, or an external 120 Hz screen); on a 60 Hz screen the
   extra frames are not shown. **1440p and 4K at 120 fps** do not hold 120 on most Macs (4K at 120 runs at about 105 fps
   on an M4 Pro); 60 or 90 fps is the better choice there.
@@ -204,8 +203,6 @@ Cela utilise plus de mémoire et de disque ; Switch reste le réglage par défau
 
 - **Le premier chargement peut se bloquer.** Environ 1 lancement sur 17 à 60 images/s, le jeu reste sur l'écran de
   chargement après *Continuer*. Quittez (⌘Q) et relancez. C'est plus fréquent quand le Mac est très occupé par ailleurs.
-- **Rare : un chargement (téléportation, changement de zone) peut rester sur l'écran de chargement.** Quittez (⌘Q) et
-  relancez ; la sauvegarde ne risque rien.
 - **120 images/s** demande un écran 120 Hz (MacBook Pro ProMotion ou écran externe 120 Hz) ; sur un écran 60 Hz les
   images en plus ne s'affichent pas. **1440p et 4K à 120** ne tiennent pas 120 sur la plupart des Mac (la 4K à 120 tourne
   à environ 105 images/s sur un M4 Pro) ; préférez 60 ou 90.

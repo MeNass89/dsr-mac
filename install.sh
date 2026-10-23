@@ -20,7 +20,7 @@ setopt pipefail
 HERE=${0:A:h}
 TITLE=01004AB00A260000
 NX_REPO=${NX_REPO:-https://github.com/MeNass89/nxnative.git}
-NX_COMMIT=${NX_COMMIT:-6552b528a51c4920d9df60ac88adf1181f3ddb18}
+NX_COMMIT=${NX_COMMIT:-372a08a65e4dd969bab898478e2884ab13f09ab8}
 CHAIN=e74e5b975ca2
 OUT="$HOME/Applications/Dark Souls Remastered.app"; WORK="$HOME/Library/Caches/dsr-mac-build"
 MODES=(60 90 120 2k60 2k90 2k120 4k60 4k90 4k120); QUICK=0; KEEP=0; DUMP=; BASE=; UPD=; KEYS=; NX=; PCG=
