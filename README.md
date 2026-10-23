@@ -93,6 +93,8 @@ more memory and disk; Switch stays the default.
 - **120 fps** needs a 120 Hz display (MacBook Pro ProMotion, or an external 120 Hz screen); on a 60 Hz screen the
   extra frames are not shown. **1440p and 4K at 120 fps** do not hold 120 on most Macs (4K at 120 runs at about 105 fps
   on an M4 Pro); 60 or 90 fps is the better choice there.
+- **120 fps at 1080p** is steadier since v1.0.3 (the game's threads spin briefly when handing work to each other
+  instead of sleeping), but some frames are still late: about 4 % take over 12 ms on an M2 MacBook Air.
 - **Short stutters** the first time a new effect appears: the app compiles it once and remembers it.
 - Online play, messages and summon signs from other players are not available (offline only).
 - Tested on an M4 Pro MacBook Pro and an M2 MacBook Air, macOS 27.2. Other Macs should work but are not verified.
@@ -213,6 +215,9 @@ Cela utilise plus de mémoire et de disque ; Switch reste le réglage par défau
 - **120 images/s** demande un écran 120 Hz (MacBook Pro ProMotion ou écran externe 120 Hz) ; sur un écran 60 Hz les
   images en plus ne s'affichent pas. **1440p et 4K à 120** ne tiennent pas 120 sur la plupart des Mac (la 4K à 120 tourne
   à environ 105 images/s sur un M4 Pro) ; préférez 60 ou 90.
+- **120 images/s en 1080p** est plus régulier depuis la v1.0.3 (les threads du jeu attendent activement un court instant
+  quand ils se passent le travail, au lieu de s'endormir), mais quelques images restent en retard : environ 4 % dépassent
+  12 ms sur un MacBook Air M2.
 - **Petits à-coups** la première fois qu'un nouvel effet apparaît : l'application le compile une fois et s'en souvient.
 - Pas de jeu en ligne, ni messages ni signes d'invocation d'autres joueurs (hors ligne uniquement).
 - Testé sur MacBook Pro M4 Pro et MacBook Air M2, macOS 27.2. Les autres Mac devraient fonctionner sans être vérifiés.

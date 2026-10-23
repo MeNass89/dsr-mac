@@ -218,6 +218,7 @@ final class Game: ObservableObject {
         if overlay { e["DM_ROMFS_OVERLAY"] = overlayDir.path }
         e["DM_PRESENT_HZ"] = String(s.fps)
         if s.fps != 60 { e["DM_PRESENT_LINK"] = "0" }   // classic present: the display-link path holds the game at 60
+        if s.fps != 60 && e["DM_SPIN_US"] == nil { e["DM_SPIN_US"] = "30" }   // above 60 the game's threads hand work over many times per 8.3 ms frame: a 30 µs spin before sleeping keeps them on time (M2 windowless at 120: frames > 12 ms 6.2 -> 3.9 %, p99 25.7 -> 15.8 ms; 60 warps and 20 Continue boots without a hang)
         if s.resolution != 1080 { e["DM_MEM_RESERVE"] = "0x200000000"; e["DM_APP_POOL"] = "0x1A0000000" }   // bigger targets need a larger guest heap and allocator pool
         if s.fullscreen { e["DM_FULLSCREEN"] = "1" }
         if s.perfOverlay { e["MTL_HUD_ENABLED"] = "1" }
