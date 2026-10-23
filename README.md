@@ -17,7 +17,7 @@ Namco Entertainment Inc.; Nintendo Switch is a trademark of Nintendo.
 ### What you need
 
 - A Mac with Apple silicon (M1 or later) and **macOS 26 or later**. 16 GB of memory recommended for 4K.
-- About **10 GB** free during the build, 5.5 GB for the app afterwards.
+- About **10 GB** free during the build, about 4.5 GB afterwards (the game data; the app itself is a few MB).
 - Your game, dumped from **your own Switch** (for example with DBI or nxdumptool): the base game (NSP or XCI)
   **and the 1.0.3 update** (v196608, NSP), plus **`prod.keys`** dumped from the same console (Lockpick_RCM).
   Only update 1.0.3 is supported; `install.sh` checks every file and refuses anything else.
@@ -41,7 +41,11 @@ git clone https://github.com/MeNass89/dsr-mac.git dsr-mac && cd dsr-mac
 If you already extracted the game (a folder with `ExeFS/` and `RomFS/`, base and update merged):
 `./install.sh --dump <folder>`.
 
-The app lands in `~/Applications/Dark Souls Remastered.app` (`--out` to change it). The first build takes
+The app lands in `~/Applications/Dark Souls Remastered.app` (`--out` to change it); it holds only the launcher and the
+host, a few MB. The game data built from your files (about 4.2 GB, plus 2.7 GB with PC textures) goes to
+`~/Library/Application Support/nxnative/DarkSoulsRemastered/game` (`--data` to change it). Keeping it out of the app
+lets the app open at once the first time: macOS checks every byte of a freshly signed app before it first runs, which
+took about 1 minute on the internal disk and up to 34 minutes on an external disk when the data was inside. The first build takes
 30 to 90 minutes, most of it compiling about 3,100 shaders; `--modes "60 4k60"` builds only the modes you want.
 `./install.sh --help` lists every option.
 
@@ -77,7 +81,7 @@ than the Switch ones (up to 4× the pixels, BC7 colour, BC5 normal maps). Add yo
 ./install.sh --dump <folder> --pc-game "<PC game folder>"
 ```
 
-It takes about 16 more minutes, adds **2.7 GB** to the app and needs
+It takes about 16 more minutes, adds **2.7 GB** to the game data and needs
 `python3 -m pip install numpy pillow etcpak texture2ddecoder`. Nothing from the PC game ships here either: the
 textures are converted from your copy on your Mac. Then choose **Graphics → Textures → PC** in the launcher. It uses
 more memory and disk; Switch stays the default.
@@ -89,9 +93,6 @@ more memory and disk; Switch stays the default.
 - **120 fps** needs a 120 Hz display (MacBook Pro ProMotion, or an external 120 Hz screen); on a 60 Hz screen the
   extra frames are not shown. **1440p and 4K at 120 fps** do not hold 120 on most Macs (4K at 120 runs at about 105 fps
   on an M4 Pro); 60 or 90 fps is the better choice there.
-- **The first launch of a freshly built app can be slow:** it can take several minutes before the window appears
-  while macOS checks the new 5 GB bundle once (measured up to 16 minutes on a busy MacBook Air, external disk).
-  Later launches start at once.
 - **Short stutters** the first time a new effect appears: the app compiles it once and remembers it.
 - Online play, messages and summon signs from other players are not available (offline only).
 - Tested on an M4 Pro MacBook Pro and an M2 MacBook Air, macOS 27.2. Other Macs should work but are not verified.
@@ -131,7 +132,7 @@ est une marque de Bandai Namco Entertainment Inc. ; Nintendo Switch est une marq
 ### Il vous faut
 
 - Un Mac Apple silicon (M1 ou plus récent) sous **macOS 26 ou plus récent**. 16 Go de mémoire conseillés pour la 4K.
-- Environ **10 Go** libres pendant la construction, 5,5 Go pour l'application ensuite.
+- Environ **10 Go** libres pendant la construction, environ 4,5 Go ensuite (les données du jeu ; l'application elle-même pèse quelques Mo).
 - Votre jeu, extrait de **votre propre Switch** (par exemple avec DBI ou nxdumptool) : le jeu de base (NSP ou XCI)
   **et la mise à jour 1.0.3** (v196608, NSP), plus le fichier **`prod.keys`** de la même console (Lockpick_RCM).
   Seule la 1.0.3 est prise en charge ; `install.sh` vérifie chaque fichier et refuse tout le reste.
@@ -158,6 +159,12 @@ Si le jeu est déjà extrait (un dossier avec `ExeFS/` et `RomFS/`, base et mise
 L'application arrive dans `~/Applications/Dark Souls Remastered.app` (`--out` pour changer). La première construction
 prend 30 à 90 minutes, surtout pour compiler environ 3 100 shaders ; `--modes "60 4k60"` ne construit que les modes
 voulus. `./install.sh --help` liste toutes les options.
+
+L'application ne contient que le lanceur et l'hôte, quelques Mo. Les données du jeu construites depuis vos fichiers
+(environ 4,2 Go, 2,7 Go de plus avec les textures PC) vont dans `~/Library/Application Support/nxnative/DarkSoulsRemastered/game`
+(`--data` pour changer). Les garder hors de l'application la fait s'ouvrir tout de suite la première fois : macOS
+vérifie chaque octet d'une application fraîchement signée avant son premier lancement, ce qui prenait environ 1 minute
+sur le disque interne et jusqu'à 34 minutes sur un disque externe quand les données étaient dedans.
 
 **Premier lancement :** l'application est signée « ad hoc », pas par un développeur identifié. Clic droit sur
 l'application → **Ouvrir**, puis **Ouvrir** (une seule fois). Si macOS refuse encore : Réglages Système →
@@ -194,7 +201,7 @@ du jeu PC (celui qui contient `chr/`, `map/`, `parts/`) à la construction :
 ./install.sh --dump <dossier> --pc-game "<dossier du jeu PC>"
 ```
 
-Comptez environ 16 minutes de plus et **2,7 Go** de plus pour l'application ; il faut
+Comptez environ 16 minutes de plus et **2,7 Go** de plus pour les données du jeu ; il faut
 `python3 -m pip install numpy pillow etcpak texture2ddecoder`. Rien du jeu PC n'est fourni ici non plus : les textures
 sont converties depuis votre copie, sur votre Mac. Choisissez ensuite **Graphismes → Textures → PC** dans le lanceur.
 Cela utilise plus de mémoire et de disque ; Switch reste le réglage par défaut.
@@ -206,9 +213,6 @@ Cela utilise plus de mémoire et de disque ; Switch reste le réglage par défau
 - **120 images/s** demande un écran 120 Hz (MacBook Pro ProMotion ou écran externe 120 Hz) ; sur un écran 60 Hz les
   images en plus ne s'affichent pas. **1440p et 4K à 120** ne tiennent pas 120 sur la plupart des Mac (la 4K à 120 tourne
   à environ 105 images/s sur un M4 Pro) ; préférez 60 ou 90.
-- **Le premier lancement d'une application fraîchement construite peut être lent :** plusieurs minutes avant que la
-  fenêtre n'apparaisse, le temps que macOS vérifie une fois la nouvelle application de 5 Go (jusqu'à 16 minutes mesurées
-  sur un MacBook Air chargé, disque externe). Les lancements suivants sont immédiats.
 - **Petits à-coups** la première fois qu'un nouvel effet apparaît : l'application le compile une fois et s'en souvient.
 - Pas de jeu en ligne, ni messages ni signes d'invocation d'autres joueurs (hors ligne uniquement).
 - Testé sur MacBook Pro M4 Pro et MacBook Air M2, macOS 27.2. Les autres Mac devraient fonctionner sans être vérifiés.

@@ -11,8 +11,19 @@ func T(_ en: String, _ f: String) -> String { fr ? f : en }
 
 // MARK: - Paths
 let bundleMacOS = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS")
-let gameRes = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/game")
+let bundleRes = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources")
 let support = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/nxnative/DarkSoulsRemastered")
+// The game data (romfs, msl, main*, games, pctextures, glyphs) lives outside the signed app: macOS scans a freshly signed bundle in full before its first
+// launch (16-34 min for 4 GB). install.sh writes its folder into Resources/game-path (default <support>/game). Apps built before v1.0.2 keep it in Resources/game.
+let gameRes: URL = {
+    let fm = FileManager.default
+    var c: [URL] = []
+    if let p = try? String(contentsOf: bundleRes.appendingPathComponent("game-path"), encoding: .utf8) {
+        let t = p.trimmingCharacters(in: .whitespacesAndNewlines); if !t.isEmpty { c.append(URL(fileURLWithPath: t)) }
+    }
+    c += [support.appendingPathComponent("game"), bundleRes.appendingPathComponent("game")]
+    return c.first { fm.fileExists(atPath: $0.appendingPathComponent("romfs").path) } ?? c[0]
+}()
 let modsDir = support.appendingPathComponent("mods")
 let overlayDir = support.appendingPathComponent("overlay")
 let backupsDir = support.appendingPathComponent("backups")
@@ -31,7 +42,7 @@ struct Settings: Codable, Equatable {
     var skipWindow = false
     var mods: [String: Bool] = [:] // mod folder name → enabled
     var modOrder: [String] = []    // priority, first wins
-    var textures = "switch"        // switch, or pc: the PC version's textures where they are better (Resources/game/pctextures, built from the user's PC copy)
+    var textures = "switch"        // switch, or pc: the PC version's textures where they are better (game/pctextures, built from the user's PC copy)
 }
 extension Settings {   // missing keys keep their defaults, so a settings file from an older launcher still loads
     enum K: String, CodingKey { case resolution, fps, fullscreen, perfOverlay, faceButtons, buttonPrompts, volume, skipWindow, mods, modOrder, textures }
@@ -150,7 +161,7 @@ func buildOverlay(_ s: Settings) throws -> [String: ModReport] {
     return reports
 }
 
-// MARK: - PC textures. Resources/game/pctextures holds textures.append (Switch archives rebuilt with the PC version's textures where they are larger or better
+// MARK: - PC textures. game/pctextures holds textures.append (Switch archives rebuilt with the PC version's textures where they are larger or better
 // compressed: BC7 colour, BC5 normals) and textures.index (archive, path hash hex, offset, size, path per line). It is generated from the user's own PC copy
 // of the game when the app is built (tools/dsr-pc-textures, install.sh --pc-game); the release never contains game data.
 struct TexturePack { let data: URL; let size: UInt64; let entries: [(Int, UInt32, UInt64, UInt64)] }
@@ -167,7 +178,7 @@ func texturePack(_ s: Settings) -> TexturePack? {
 }
 
 // MARK: - Button pictures. The game draws its button prompts from a font icon page (DSFont24_1000 in /font/<lang>/DSFont24*.tpf.dcx) and the inventory
-// tab keycaps (Menu11 in two menu archives). Resources/game/glyphs/<ps|xbox>-<position|label> hold those archives redrawn from the user's own RomFS when the
+// tab keycaps (Menu11 in two menu archives). game/glyphs/<ps|xbox>-<position|label> hold those archives redrawn from the user's own RomFS when the
 // app is built (tools/dsr-glyphs/dsr_glyphs.py), installed like a mod. "position"/"label" follows the face-button setting so the picture always names the
 // button that does the action.
 enum Pad { case none, playstation, xbox, other }
@@ -305,7 +316,7 @@ struct PlayPane: View {
     var body: some View {
         VStack(spacing: 18) {
             Spacer()
-            if let img = NSImage(contentsOf: gameRes.appendingPathComponent("../AppIcon.icns")) ?? NSImage(named: "AppIcon") {
+            if let img = NSImage(contentsOf: bundleRes.appendingPathComponent("AppIcon.icns")) ?? NSImage(named: "AppIcon") {
                 Image(nsImage: img).resizable().interpolation(.high).frame(width: 180, height: 180).clipShape(RoundedRectangle(cornerRadius: 28)).shadow(radius: 12)
             }
             Text("DARK SOULS: REMASTERED").font(.system(size: 26, weight: .semibold, design: .serif)).tracking(2)
@@ -555,6 +566,13 @@ struct LauncherApp: App {
             let r = (try? buildOverlay(loadSettings())) ?? [:]
             print("button prompts: \(promptFamily(loadSettings(), wait: 1.5)) -> \(glyphSet(loadSettings())?.path ?? "none (Switch)")")
             for (k, v) in r { print("\(k): \(v.replaced) replaced, \(v.unknown.count) unknown \(v.unknown.prefix(5))") }
+            exit(0)
+        }
+        // CLI: DarkSouls --print-env (the game folder, the command and the environment Play would use, for tests)
+        if CommandLine.arguments.contains("--print-env") {
+            let s = loadSettings(), g = Game()
+            print("game \(gameRes.path)\ncommand \(bundleMacOS.appendingPathComponent("dmhost").path) \(gameRes.appendingPathComponent(g.main(s)).path)")
+            for (k, v) in g.env(s, overlay: false) where k.hasPrefix("DM_") { print("env \(k)=\(v)") }
             exit(0)
         }
         let s = loadSettings()

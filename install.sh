@@ -6,8 +6,9 @@
 #   ./install.sh --nsp-base <base .nsp|.xci> --nsp-update <v196608 update .nsp> --keys <prod.keys> [--out <app path>]
 #   ./install.sh --dump <folder with ExeFS/ and RomFS/ of 1.0.3, base+update merged> [--out <app path>]
 #
-# Options: --out <path.app>       (default ~/Applications/Dark Souls Remastered.app)
-#          --work <dir>           work folder, ~10 GB, on the same APFS volume as --out to clone the RomFS for free (default ~/Library/Caches/dsr-mac-build)
+# Options: --out <path.app>       (default ~/Applications/Dark Souls Remastered.app; the app itself is a few MB)
+#          --data <dir>           the game data, ~4.2 GB (default ~/Library/Application Support/nxnative/DarkSoulsRemastered/game)
+#          --work <dir>           work folder, ~10 GB, on the same APFS volume as --data to clone the RomFS for free (default ~/Library/Caches/dsr-mac-build)
 #          --nxnative <dir>       an existing nxnative checkout at the pinned commit (default: cloned into the work folder)
 #          --modes "60 2k60 ..."  which frame rate / resolution builds to make (default: all nine)
 #          --quick                check file sizes instead of SHA-256 of the 3.6 GB archives
@@ -22,13 +23,13 @@ TITLE=01004AB00A260000
 NX_REPO=${NX_REPO:-https://github.com/MeNass89/nxnative.git}
 NX_COMMIT=${NX_COMMIT:-372a08a65e4dd969bab898478e2884ab13f09ab8}
 CHAIN=e74e5b975ca2
-OUT="$HOME/Applications/Dark Souls Remastered.app"; WORK="$HOME/Library/Caches/dsr-mac-build"
+OUT="$HOME/Applications/Dark Souls Remastered.app"; DATA="$HOME/Library/Application Support/nxnative/DarkSoulsRemastered/game"; WORK="$HOME/Library/Caches/dsr-mac-build"
 MODES=(60 90 120 2k60 2k90 2k120 4k60 4k90 4k120); QUICK=0; KEEP=0; DUMP=; BASE=; UPD=; KEYS=; NX=; PCG=
 while (( $# )); do case $1 in
   --dump) DUMP=${2:A}; shift 2;; --nsp-base) BASE=${2:A}; shift 2;; --nsp-update) UPD=${2:A}; shift 2;; --keys) KEYS=${2:A}; shift 2;;
-  --out) OUT=${2:A}; [[ $OUT == *.app ]] || OUT="$OUT/Dark Souls Remastered.app"; shift 2;; --work) WORK=${2:A}; shift 2;; --nxnative) NX=${2:A}; shift 2;; --modes) MODES=(${=2}); shift 2;;
+  --out) OUT=${2:A}; [[ $OUT == *.app ]] || OUT="$OUT/Dark Souls Remastered.app"; shift 2;; --work) WORK=${2:A}; shift 2;; --data) DATA=${2:A}; shift 2;; --nxnative) NX=${2:A}; shift 2;; --modes) MODES=(${=2}); shift 2;;
   --pc-game) PCG=${2:A}; shift 2;;
-  --quick) QUICK=1; shift;; --keep-work) KEEP=1; shift;; -h|--help) sed -n 2,17p "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+  --quick) QUICK=1; shift;; --keep-work) KEEP=1; shift;; -h|--help) sed -n 2,18p "$0" | sed 's/^# \{0,1\}//'; exit 0;;
   *) echo "unknown option $1 (see --help)"; exit 2;; esac; done
 T0=$SECONDS
 say() { printf '[%3ds] %s\n' $((SECONDS - T0)) "$*"; }
@@ -128,9 +129,12 @@ say "8/9 building the host (dmhost) and the launcher"
 logrun dmhost make -C "$NX/dm/host" -j"$J" GAME=$TITLE dmhost
 logrun launcher swiftc -O -parse-as-library "$HERE/launcher/Launcher.swift" -o "$WORK/DarkSouls"
 
-# ---- 9. the app ----
-say "9/9 assembling $OUT"
-rm -rf "$OUT"; R="$OUT/Contents/Resources/game"; mkdir -p "$OUT/Contents/MacOS" "$R/games/$TITLE"
+# ---- 9. the app, and the game data next to it ----
+# The data stays outside the app: macOS checks every byte of a freshly signed bundle before its first launch, which took 16-34 min with 4 GB inside.
+say "9/9 assembling $OUT (game data in $DATA)"
+R=$DATA; rm -rf "$OUT" "$R"/{romfs,msl,games,pctextures,glyphs,main*}(N); mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources" "$R/games/$TITLE"
+FREE=$(df -g "$R" | awk 'NR==2{print $4}'); [ "$FREE" -ge 5 ] || die "need about 5 GB free for the game data in $R (have ${FREE} GB)"
+print -r -- "$R" > "$OUT/Contents/Resources/game-path"
 cp "$NX/dm/host/dmhost" "$WORK/DarkSouls" "$OUT/Contents/MacOS/"
 for mode in $MODES; do cp -c -R "$PT/main$mode" "$R/main$mode" 2>/dev/null || cp -R "$PT/main$mode" "$R/main$mode"; done
 cp -c -R "$WORK/shader/cache" "$R/msl" 2>/dev/null || cp -R "$WORK/shader/cache" "$R/msl"
@@ -175,4 +179,4 @@ PL
 codesign --force --deep -s - "$OUT" > "$LOGS/codesign.log" 2>&1 || say "   ad-hoc signing failed (see $LOGS/codesign.log); the app may still open with right-click > Open"
 # Settings the launcher reads: the 120 fps build needs a 120 Hz display; nothing else to configure
 [ $KEEP = 1 ] || rm -rf "$PT" "$WORK/shader/pkg" "$WORK/tmp" "$WORK/ver" "$EX"
-say "done: $OUT ($(du -sh "$OUT" | cut -f1)); saves go to ~/Library/Application Support/nxnative/DarkSoulsRemastered"
+say "done: $OUT ($(du -sh "$OUT" | cut -f1)), game data $R ($(du -sh "$R" | cut -f1)); saves go to ~/Library/Application Support/nxnative/DarkSoulsRemastered"
