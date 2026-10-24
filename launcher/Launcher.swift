@@ -185,8 +185,12 @@ enum Pad { case none, playstation, xbox, other }
 func connectedPad(wait: TimeInterval = 0) -> Pad {   // GameController lists controllers a moment after launch: wait up to `wait` seconds for one
     let end = Date().addingTimeInterval(wait)
     while GCController.controllers().first(where: { $0.extendedGamepad != nil }) == nil && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    if let t = ProcessInfo.processInfo.environment["DSR_TEST_PAD"] { return padKind(nil, category: t) }   // tests without hardware: the product category GameController reports, e.g. "DualSense", "Xbox One"
     guard let c = GCController.controllers().first(where: { $0.extendedGamepad != nil }) else { return .none }
-    let g = c.extendedGamepad, cat = (c.productCategory + " " + (c.vendorName ?? "")).lowercased()
+    return padKind(c.extendedGamepad, category: c.productCategory + " " + (c.vendorName ?? ""))
+}
+func padKind(_ g: GCExtendedGamepad?, category: String) -> Pad {
+    let cat = category.lowercased()
     if g is GCDualSenseGamepad || g is GCDualShockGamepad || cat.contains("dualsense") || cat.contains("dualshock") || cat.contains("playstation") { return .playstation }
     if g is GCXboxGamepad || cat.contains("xbox") { return .xbox }
     return .other
