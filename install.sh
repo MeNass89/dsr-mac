@@ -132,7 +132,7 @@ logrun launcher swiftc -O -parse-as-library "$HERE/launcher/Launcher.swift" -o "
 # ---- 9. the app, and the game data next to it ----
 # The data stays outside the app: macOS checks every byte of a freshly signed bundle before its first launch, which took 16-34 min with 4 GB inside.
 say "9/9 assembling $OUT (game data in $DATA)"
-R=$DATA; rm -rf "$OUT" "$R"/{romfs,msl,games,pctextures,glyphs,main*}(N); mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources" "$R/games/$TITLE"
+R=$DATA; rm -rf "$OUT" "$R"/{romfs,msl,games,pctextures,glyphs,tools,main*}(N); mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources" "$R/games/$TITLE"
 FREE=$(df -g "$R" | awk 'NR==2{print $4}'); [ "$FREE" -ge 5 ] || die "need about 5 GB free for the game data in $R (have ${FREE} GB)"
 print -r -- "$R" > "$OUT/Contents/Resources/game-path"
 cp "$NX/dm/host/dmhost" "$WORK/DarkSouls" "$OUT/Contents/MacOS/"
@@ -140,6 +140,9 @@ for mode in $MODES; do cp -c -R "$PT/main$mode" "$R/main$mode" 2>/dev/null || cp
 cp -c -R "$WORK/shader/cache" "$R/msl" 2>/dev/null || cp -R "$WORK/shader/cache" "$R/msl"
 cp -c -R "$DUMP/RomFS" "$R/romfs" 2>/dev/null || { say "   (RomFS on another volume: copying 3.8 GB)"; cp -R "$DUMP/RomFS" "$R/romfs"; }
 cp "$GP"/*.tsv "$GP/dmsh_chain.h" "$R/games/$TITLE/"
+# PC mod converter (the launcher runs it on each mod added: tools/dsr-mods/port_mod.py, needs numpy etcpak texture2ddecoder for textures)
+rm -rf "$R/tools"; mkdir -p "$R/tools"; cp -R "$HERE/tools/dsr-mods" "$HERE/tools/dsr-pc-textures" "$R/tools/"
+$PY -c "import sys; print(sys.executable)" > "$R/tools/python"
 if [ -n "$PCG" ]; then   # PC textures from the user's PC copy (never shipped): rebuilt Switch archives + index, read by the launcher
   [ -d "$PCG/chr" ] && [ -d "$PCG/map" ] || die "--pc-game: $PCG must hold chr/ and map/ (the PC game folder)"
   $PY -c 'import numpy, PIL, etcpak, texture2ddecoder' 2>/dev/null || die "PC textures need: $PY -m pip install numpy pillow etcpak texture2ddecoder"

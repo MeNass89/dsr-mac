@@ -74,7 +74,7 @@ func fsHash(_ path: String) -> UInt32 {
 func modRoot(_ dir: URL) -> URL {   // a mod zipped with an extra top folder ("MyMod/MyMod/chr/..." or ".../data/chr/...")
     let fm = FileManager.default
     let kids = ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey])) ?? []).filter { !$0.lastPathComponent.hasPrefix(".") }
-    let known: Set<String> = ["chr", "parts", "map", "msg", "param", "sfx", "menu", "font", "obj", "other", "event", "facegen", "mtd", "paramdef", "remo", "script", "shader", "sound"]
+    let known: Set<String> = ["chr", "parts", "map", "msg", "param", "sfx", "menu", "font", "obj", "other", "event", "facegen", "mtd", "paramdef", "remo", "script", "shader", "sound", "movww"]
     if kids.contains(where: { known.contains($0.lastPathComponent.lowercased()) }) { return dir }
     if kids.count == 1, (try? kids[0].resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { return modRoot(kids[0]) }
     return dir
@@ -89,6 +89,42 @@ func modFiles(_ dir: URL) -> [(String, URL)] {
         out.append((String(rel), u))
     }
     return out
+}
+// PC mods: Nexus mods are made for the PC game, whose files do not load on the Switch build (other archive flags and names, NVN textures, PC-only content).
+// tools/dsr-mods/port_mod.py (copied next to the game data by install.sh) merges each mod file into the matching Switch file; the result is cached in
+// mods-ported/<mod>, keyed by the mod's file list, sizes and dates, and is what the overlay installs. port.tsv there says what happened to each file.
+let portedDir = support.appendingPathComponent("mods-ported")
+func portTool() -> URL? {
+    for u in [gameRes.appendingPathComponent("tools/dsr-mods/port_mod.py"), bundleRes.appendingPathComponent("dsr-mods/port_mod.py")] where FileManager.default.fileExists(atPath: u.path) { return u }
+    return nil
+}
+func portedMod(_ dir: URL) -> URL {
+    guard let tool = portTool() else { return dir }
+    let fm = FileManager.default, out = portedDir.appendingPathComponent(dir.lastPathComponent), stamp = out.appendingPathComponent(".source")
+    let key = modFiles(dir).map { (rel, u) -> String in
+        let a = try? fm.attributesOfItem(atPath: u.path)
+        return "\(rel)\t\((a?[.size] as? UInt64) ?? 0)\t\(((a?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0))"
+    }.sorted().joined(separator: "\n") + "\n" + ((try? String(contentsOf: tool, encoding: .utf8))?.count.description ?? "")
+    if (try? String(contentsOf: stamp, encoding: .utf8)) == key { return out }
+    try? fm.removeItem(at: out); try? fm.createDirectory(at: out, withIntermediateDirectories: true)
+    // The Python install.sh ran (game/tools/python: it has numpy etcpak texture2ddecoder in its user site-packages, so no -I), else python3 on PATH
+    let py = (try? String(contentsOf: gameRes.appendingPathComponent("tools/python"), encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let p = Process(); p.executableURL = URL(fileURLWithPath: py.isEmpty ? "/usr/bin/env" : py)
+    p.arguments = (py.isEmpty ? ["python3"] : []) + ["-B", tool.path, dir.path, gameRes.appendingPathComponent("romfs").path, out.path]
+    p.currentDirectoryURL = out
+    p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+    do { try p.run(); p.waitUntilExit() } catch { return dir }
+    guard p.terminationStatus == 0 else { return dir }   // Python or its modules missing: the mod goes in as it is, as before
+    try? key.write(to: stamp, atomically: true, encoding: .utf8)
+    return out
+}
+// What the converter reported for a mod: (ported, not convertible) file lists, from mods-ported/<mod>/port.tsv
+func portReport(_ name: String) -> (ported: Int, skipped: [String]) {
+    guard let t = try? String(contentsOf: portedDir.appendingPathComponent(name).appendingPathComponent("port.tsv"), encoding: .utf8) else { return (0, []) }
+    var n = 0, sk: [String] = []
+    for l in t.split(separator: "\n") { let f = l.split(separator: "\t", omittingEmptySubsequences: false); guard f.count >= 3 else { continue }
+        if f[1] == "ported" { n += 1 } else if f[1] != "unchanged" { sk.append(String(f[0]).components(separatedBy: "/").last ?? String(f[0])) } }
+    return (n, sk)
 }
 // Rebuild the overlay from the enabled mods (first in the order wins). Returns per-mod reports; an empty overlay when no mod is on
 func buildOverlay(_ s: Settings) throws -> [String: ModReport] {
@@ -112,13 +148,17 @@ func buildOverlay(_ s: Settings) throws -> [String: ModReport] {
         index.append(m)
     }
     var done = Set<UInt32>(), packSize = [UInt64](repeating: 0, count: 2)
+    let glyphs = glyphSet(s)
     for dir in enabled {
         let name = dir.lastPathComponent
         var r = ModReport()
-        for (rel, url) in modFiles(modRoot(dir)) {
+        let src = dir == glyphs ? dir : portedMod(modRoot(dir))
+        if src != dir { r.unknown = portReport(name).skipped }
+        for (rel, url) in modFiles(src) {
+            if rel.hasSuffix(".tsv") || rel.hasSuffix("/.source") { continue }
             let path = rel.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             let h = path.hasPrefix("_hash/") ? (UInt32(path.dropFirst(6), radix: 16) ?? 0) : fsHash("/" + path)   // _hash/<8 hex>: an archive known only by its path hash
-            guard let a = (0..<2).first(where: { index[$0][h] != nil }), let eo = index[a][h] else { r.unknown.append(rel); continue }
+            guard let a = (0..<2).first(where: { index[$0][h] != nil }), let eo = index[a][h] else { if src == dir || dir == glyphs { r.unknown.append(rel) }; continue }
             if done.contains(h) { continue }   // an earlier mod in the order already replaced it
             let data = try Data(contentsOf: url)
             while appends[a].count % 16 != 0 { appends[a].append(0) }
