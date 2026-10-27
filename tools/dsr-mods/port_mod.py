@@ -6,7 +6,7 @@ Tegra block-linear with an NVN header, and whole files carry PC-only content. Ea
   param/**/*.parambnd.dcx    params: rows the mod changes, by row id, into the Switch params (same row layout required)
   *.dds (loose, in a folder named after its archive: menu/menu_1/Menu08.dds) and PC *.tpf / *.tpf.dcx: textures into the Switch TPF entry of that name
   event/*.emevd.dcx          events: same format on both, used as they are (recompressed)
-  script/talk/*.talkesdbnd.dcx  talk scripts: the PC scripts rewrapped in the Switch archive
+  script/talk/*.talkesdbnd.dcx  not converted: the Switch talk engine reads another ESD layout (a PC script crashes it)
 Output: a folder in archive-path layout for the launcher's overlay, and port.tsv (one line per mod file: what happened)."""
 import sys, os, struct, zlib
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -253,12 +253,8 @@ def main(mod, R, out):
                 h, e = undcx(d); hs, _ = undcx(s)
                 if e[:4] != b'EVD\0': raise ValueError('not an EMEVD')
                 new, why = redcx(hs, e), 'event script used as is'
-            elif low.endswith('.talkesdbnd.dcx'):
-                _, p = undcx(d); hs, t = undcx(s)
-                pcs = {leaf(n): x for n, x in bnd3_files(p)}; names = [leaf(n) for n, _ in bnd3_files(t)]
-                miss = [n for n in pcs if n not in names]
-                new = redcx(hs, bnd3_rebuild(t, [pcs.get(leaf(n), x) for n, x in bnd3_files(t)]))
-                why = f'{sum(n in pcs for n in names)} of {len(names)} talk scripts' + (f', {len(miss)} PC-only scripts dropped' if miss else '')
+            elif low.endswith('.talkesdbnd.dcx'):   # the Switch talk engine reads a later ESD layout (hashes, -1 for none, terminated names): PC scripts crash it
+                rep.append((rel, 'skipped', 'talk script: the Switch build uses another ESD layout, not converted yet')); continue
             else: rep.append((rel, 'skipped', 'this file type is not converted yet')); continue
             if new is None: rep.append((rel, 'unchanged', why)); continue
             put(rel, new); rep.append((rel, 'ported', why))
