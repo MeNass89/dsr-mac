@@ -6,14 +6,15 @@ Tegra block-linear with an NVN header, and whole files carry PC-only content. Ea
   param/**/*.parambnd.dcx    params: rows the mod changes, by row id, into the Switch params (same row layout required)
   *.dds (loose, in a folder named after its archive: menu/menu_1/Menu08.dds) and PC *.tpf / *.tpf.dcx: textures into the Switch TPF entry of that name
   event/*.emevd.dcx          events: same format on both, used as they are (recompressed)
+  chr/*.anibnd.dcx           animation events: PC TAE animations the mod changes, into the Switch TAE (tae.py)
   script/talk/*.talkesdbnd.dcx  talk scripts: each PC script re-laid in the Switch ESD layout (esd.py), in the Switch archive
 Output: a folder in archive-path layout for the launcher's overlay, and port.tsv (one line per mod file: what happened)."""
-import sys, os, struct, zlib
+import sys, os, re, struct, zlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, '..', 'dsr-pc-textures'))
 from fsfmt import fs_hash, bhd5_entries, bnd3_parse, bnd3_files, bnd3_rebuild, tpf_parse, dds_info
 from nvntex import read_entry, build_entry, tpf_rebuild
-import fmg, esd, numpy as np
+import fmg, esd, tae, numpy as np
 
 KNOWN = {'chr', 'parts', 'map', 'msg', 'param', 'sfx', 'menu', 'font', 'obj', 'other', 'event', 'facegen', 'mtd', 'paramdef', 'remo', 'script', 'shader', 'sound', 'movww'}
 TEX_ARCHIVES = ('.tpf.dcx', '.tpf', '.fgbnd', '.fgbnd.dcx', '.ffxbnd.dcx', '.ffxbnd', '.chrbnd.dcx', '.partsbnd.dcx', '.objbnd.dcx')
@@ -216,6 +217,7 @@ def mod_files(root):
             full = os.path.join(dp, f); parts = os.path.relpath(full, root).split(os.sep)
             k = next((i for i, p in enumerate(parts) if p.lower() in KNOWN), None)
             if k is not None: out.append(('/'.join(parts[k:]), full))
+            elif re.fullmatch(r'c\d{4}\.(anibnd|chrbnd)\.dcx', f.lower()): out.append(('chr/' + f, full))   # loose character file (Modern Roll ships c0000.anibnd.dcx bare)
     return out
 
 def main(mod, R, out):
@@ -253,6 +255,16 @@ def main(mod, R, out):
                 h, e = undcx(d); hs, _ = undcx(s)
                 if e[:4] != b'EVD\0': raise ValueError('not an EMEVD')
                 new, why = redcx(hs, e), 'event script used as is'
+            elif low.endswith('.anibnd.dcx'):   # animation events: PC TAE (32-bit) onto the Switch TAE (64-bit) of the same name; skeleton and Havok files stay Switch
+                _, p = undcx(d); hs, t = undcx(s)
+                pcs = {leaf(n): x for n, x in bnd3_files(p) if n.lower().endswith('.tae')}; files = []; n_anim = 0; n_file = 0
+                for n, x in bnd3_files(t):
+                    if leaf(n) in pcs:
+                        y, taken = tae.port(pcs[leaf(n)], x)
+                        if taken: files.append(y); n_anim += len(taken); n_file += 1; continue
+                    files.append(x)
+                new = redcx(hs, bnd3_rebuild(t, files)) if n_anim else None
+                why = f'{n_anim} animations from the mod in {n_file} TAE files' if n_anim else 'no animation differs from the Switch one'
             elif low.endswith('.talkesdbnd.dcx'):   # the Switch talk engine reads a later ESD layout (hash, -1 for empty lists, terminated name): each PC script is re-laid
                 _, p = undcx(d); hs, t = undcx(s)
                 pcs = {leaf(n): esd.write(esd.parse(x)) for n, x in bnd3_files(p)}; names = [leaf(n) for n, _ in bnd3_files(t)]
