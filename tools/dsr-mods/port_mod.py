@@ -6,6 +6,7 @@ Tegra block-linear with an NVN header, and whole files carry PC-only content. Ea
   param/**/*.parambnd.dcx    params: rows the mod changes, by row id, into the Switch params (same row layout required)
   *.dds (loose, in a folder named after its archive: menu/menu_1/Menu08.dds) and PC *.tpf / *.tpf.dcx: textures into the Switch TPF entry of that name
   event/*.emevd.dcx          events: same format on both, used as they are (recompressed)
+  sfx/*.ffxbnd.dcx            effects: the ones the mod removes (empty FFX) are emptied in the Switch archive; changed FFX are not converted
   movww/*.bik                movies: re-encoded to the Switch's H.264 mp4 (needs ffmpeg)
   sound/frpg_main.fsb         sounds: PC MP3 samples the mod changes, re-encoded (FADPCM) into the Switch sound/frpg_main.bank (fsb.py, needs ffmpeg)
   map/MapStudio/*.msb         map layouts: the PC map re-laid in the Switch layout (msb.py)
@@ -293,6 +294,12 @@ def main(mod, R, out):
                 if d[:4] != b'\0\0\0\0' or s[:4] != b'\0\0\0\0': raise ValueError('not an uncompressed MSB')
                 new = msb.write(msb.to_switch(msb.parse(d, 4)), 8)
                 why = 'map layout: the PC map re-laid in the Switch layout (Switch-only position fixes in this map are not kept)'
+            elif low.endswith('.ffxbnd.dcx'):   # effects: PC FFX files are another layout; a mod that removes an effect ships it empty, and that the Switch archive can take
+                _, p = undcx(d); hs, t = undcx(s)
+                empty = {leaf(n) for n, x in bnd3_files(p) if n.lower().endswith('.ffx') and len(x) == 0}
+                if not empty: rep.append((rel, 'skipped', 'effect files (FFX) are not converted, only removed ones')); continue
+                new = redcx(hs, bnd3_rebuild(t, [b'' if leaf(n) in empty else x for n, x in bnd3_files(t)]))
+                why = f'{len(empty)} effects removed: ' + ', '.join(sorted(empty)) + '; changed effects (other FFX) are not converted'
             elif low.endswith('.talkesdbnd.dcx'):   # the Switch talk engine reads a later ESD layout (hash, -1 for empty lists, terminated name): each PC script is re-laid
                 _, p = undcx(d); hs, t = undcx(s)
                 pcs = {leaf(n): esd.write(esd.parse(x)) for n, x in bnd3_files(p)}; names = [leaf(n) for n, _ in bnd3_files(t)]
