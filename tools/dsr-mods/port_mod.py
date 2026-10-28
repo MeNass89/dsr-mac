@@ -6,6 +6,7 @@ Tegra block-linear with an NVN header, and whole files carry PC-only content. Ea
   param/**/*.parambnd.dcx    params: rows the mod changes, by row id, into the Switch params (same row layout required)
   *.dds (loose, in a folder named after its archive: menu/menu_1/Menu08.dds) and PC *.tpf / *.tpf.dcx: textures into the Switch TPF entry of that name
   event/*.emevd.dcx          events: same format on both, used as they are (recompressed)
+  map/MapStudio/*.msb         map layouts: the PC map re-laid in the Switch layout (msb.py)
   chr/*.anibnd.dcx           animation events: PC TAE animations the mod changes, into the Switch TAE (tae.py)
   script/talk/*.talkesdbnd.dcx  talk scripts: each PC script re-laid in the Switch ESD layout (esd.py), in the Switch archive
 Output: a folder in archive-path layout for the launcher's overlay, and port.tsv (one line per mod file: what happened)."""
@@ -14,7 +15,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, '..', 'dsr-pc-textures'))
 from fsfmt import fs_hash, bhd5_entries, bnd3_parse, bnd3_files, bnd3_rebuild, tpf_parse, dds_info
 from nvntex import read_entry, build_entry, tpf_rebuild
-import fmg, esd, tae, numpy as np
+import fmg, esd, tae, msb, numpy as np
 
 KNOWN = {'chr', 'parts', 'map', 'msg', 'param', 'sfx', 'menu', 'font', 'obj', 'other', 'event', 'facegen', 'mtd', 'paramdef', 'remo', 'script', 'shader', 'sound', 'movww'}
 TEX_ARCHIVES = ('.tpf.dcx', '.tpf', '.fgbnd', '.fgbnd.dcx', '.ffxbnd.dcx', '.ffxbnd', '.chrbnd.dcx', '.partsbnd.dcx', '.objbnd.dcx')
@@ -265,6 +266,10 @@ def main(mod, R, out):
                     files.append(x)
                 new = redcx(hs, bnd3_rebuild(t, files)) if n_anim else None
                 why = f'{n_anim} animations from the mod in {n_file} TAE files' if n_anim else 'no animation differs from the Switch one'
+            elif low.endswith('.msb'):   # map layout: the mod's whole PC map re-laid in the Switch layout (64-bit offsets, wider data blocks), so its own indices stay consistent
+                if d[:4] != b'\0\0\0\0' or s[:4] != b'\0\0\0\0': raise ValueError('not an uncompressed MSB')
+                new = msb.write(msb.to_switch(msb.parse(d, 4)), 8)
+                why = 'map layout: the PC map re-laid in the Switch layout (Switch-only position fixes in this map are not kept)'
             elif low.endswith('.talkesdbnd.dcx'):   # the Switch talk engine reads a later ESD layout (hash, -1 for empty lists, terminated name): each PC script is re-laid
                 _, p = undcx(d); hs, t = undcx(s)
                 pcs = {leaf(n): esd.write(esd.parse(x)) for n, x in bnd3_files(p)}; names = [leaf(n) for n, _ in bnd3_files(t)]
