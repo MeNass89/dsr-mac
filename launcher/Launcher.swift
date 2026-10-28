@@ -43,14 +43,15 @@ struct Settings: Codable, Equatable {
     var mods: [String: Bool] = [:] // mod folder name → enabled
     var modOrder: [String] = []    // priority, first wins
     var textures = "switch"        // switch, or pc: the PC version's textures where they are better (game/pctextures, built from the user's PC copy)
+    var colorspace = ""            // "", srgb or p3: the game layer's colour space tag (DM_LAYER_COLORSPACE; settings.json only, a test for the fullscreen purple bands on XDR)
 }
 extension Settings {   // missing keys keep their defaults, so a settings file from an older launcher still loads
-    enum K: String, CodingKey { case resolution, fps, fullscreen, perfOverlay, faceButtons, buttonPrompts, volume, skipWindow, mods, modOrder, textures }
+    enum K: String, CodingKey { case resolution, fps, fullscreen, perfOverlay, faceButtons, buttonPrompts, volume, skipWindow, mods, modOrder, textures, colorspace }
     init(from dec: Decoder) throws {
         self.init(); let c = try dec.container(keyedBy: K.self)
         func g<T: Decodable>(_ k: K, _ v: inout T) { if let x = try? c.decode(T.self, forKey: k) { v = x } }
         g(.resolution, &resolution); g(.fps, &fps); g(.fullscreen, &fullscreen); g(.perfOverlay, &perfOverlay); g(.faceButtons, &faceButtons)
-        g(.buttonPrompts, &buttonPrompts); g(.volume, &volume); g(.skipWindow, &skipWindow); g(.mods, &mods); g(.modOrder, &modOrder); g(.textures, &textures)
+        g(.buttonPrompts, &buttonPrompts); g(.volume, &volume); g(.skipWindow, &skipWindow); g(.mods, &mods); g(.modOrder, &modOrder); g(.textures, &textures); g(.colorspace, &colorspace)
     }
 }
 func loadSettings() -> Settings {
@@ -269,6 +270,7 @@ final class Game: ObservableObject {
         if s.fps != 60 && e["DM_SPIN_US"] == nil { e["DM_SPIN_US"] = "30" }   // above 60 the game's threads hand work over many times per 8.3 ms frame: a 30 µs spin before sleeping keeps them on time (M2 windowless at 120: frames > 12 ms 6.2 -> 3.9 %, p99 25.7 -> 15.8 ms; 60 warps and 20 Continue boots without a hang)
         if s.resolution != 1080 { e["DM_MEM_RESERVE"] = "0x200000000"; e["DM_APP_POOL"] = "0x1A0000000" }   // bigger targets need a larger guest heap and allocator pool
         if s.fullscreen { e["DM_FULLSCREEN"] = "1" }
+        if !s.colorspace.isEmpty { e["DM_LAYER_COLORSPACE"] = s.colorspace }
         if s.perfOverlay { e["MTL_HUD_ENABLED"] = "1" }
         if s.faceButtons == "label" { e["DM_FACE_BUTTONS"] = "label" }
         e["DM_VOLUME"] = String(Int(s.volume))
