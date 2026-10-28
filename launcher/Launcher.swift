@@ -158,7 +158,15 @@ func buildOverlay(_ s: Settings) throws -> [String: ModReport] {
             if rel.hasSuffix(".tsv") || rel.hasSuffix("/.source") { continue }
             let path = rel.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             let h = path.hasPrefix("_hash/") ? (UInt32(path.dropFirst(6), radix: 16) ?? 0) : fsHash("/" + path)   // _hash/<8 hex>: an archive known only by its path hash
-            guard let a = (0..<2).first(where: { index[$0][h] != nil }), let eo = index[a][h] else { if src == dir || dir == glyphs { r.unknown.append(rel) }; continue }
+            guard let a = (0..<2).first(where: { index[$0][h] != nil }), let eo = index[a][h] else {
+                // a loose RomFS file (movies: movww/frpg_title.mp4) goes into the overlay folder itself, which the host reads before the RomFS
+                if fm.fileExists(atPath: gameRes.appendingPathComponent("romfs/" + path).path), !fm.fileExists(atPath: overlayDir.appendingPathComponent(path).path) {
+                    let dst = overlayDir.appendingPathComponent(path)
+                    try fm.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try fm.copyItem(at: url, to: dst); r.replaced += 1; continue
+                }
+                if src == dir || dir == glyphs { r.unknown.append(rel) }; continue
+            }
             if done.contains(h) { continue }   // an earlier mod in the order already replaced it
             let data = try Data(contentsOf: url)
             while appends[a].count % 16 != 0 { appends[a].append(0) }

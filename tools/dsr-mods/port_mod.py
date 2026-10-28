@@ -6,6 +6,8 @@ Tegra block-linear with an NVN header, and whole files carry PC-only content. Ea
   param/**/*.parambnd.dcx    params: rows the mod changes, by row id, into the Switch params (same row layout required)
   *.dds (loose, in a folder named after its archive: menu/menu_1/Menu08.dds) and PC *.tpf / *.tpf.dcx: textures into the Switch TPF entry of that name
   event/*.emevd.dcx          events: same format on both, used as they are (recompressed)
+  movww/*.bik                movies: re-encoded to the Switch's H.264 mp4 (needs ffmpeg)
+  sound/frpg_main.fsb         sounds: PC MP3 samples the mod changes, re-encoded (FADPCM) into the Switch sound/frpg_main.bank (fsb.py, needs ffmpeg)
   map/MapStudio/*.msb         map layouts: the PC map re-laid in the Switch layout (msb.py)
   chr/*.anibnd.dcx           animation events: PC TAE animations the mod changes, into the Switch TAE (tae.py)
   script/talk/*.talkesdbnd.dcx  talk scripts: each PC script re-laid in the Switch ESD layout (esd.py), in the Switch archive
@@ -15,7 +17,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, '..', 'dsr-pc-textures'))
 from fsfmt import fs_hash, bhd5_entries, bnd3_parse, bnd3_files, bnd3_rebuild, tpf_parse, dds_info
 from nvntex import read_entry, build_entry, tpf_rebuild
-import fmg, esd, tae, msb, numpy as np
+import fmg, esd, tae, msb, fsb, numpy as np
 
 KNOWN = {'chr', 'parts', 'map', 'msg', 'param', 'sfx', 'menu', 'font', 'obj', 'other', 'event', 'facegen', 'mtd', 'paramdef', 'remo', 'script', 'shader', 'sound', 'movww'}
 TEX_ARCHIVES = ('.tpf.dcx', '.tpf', '.fgbnd', '.fgbnd.dcx', '.ffxbnd.dcx', '.ffxbnd', '.chrbnd.dcx', '.partsbnd.dcx', '.objbnd.dcx')
@@ -209,6 +211,17 @@ def unchanged(sw_t, name, dds):
         return float(np.abs(A - B).mean()) < 3
     except Exception: return False
 
+# ---------- movies ----------
+def bik_to_mp4(path):
+    import subprocess, tempfile
+    ff = fsb.ffmpeg()
+    with tempfile.TemporaryDirectory() as t:
+        out = os.path.join(t, 'm.mp4')
+        enc = ['-c:v', 'h264_videotoolbox', '-profile:v', 'high', '-b:v', '8M'] if sys.platform == 'darwin' else ['-c:v', 'libx264', '-crf', '18']
+        r = subprocess.run([ff, '-v', 'error', '-y', '-i', path, '-an', *enc, '-pix_fmt', 'yuv420p', '-r', '30000/1001', '-movflags', '+faststart', out], capture_output=True)
+        if r.returncode: raise ValueError('ffmpeg: ' + r.stderr.decode()[-150:])
+        return open(out, 'rb').read()
+
 # ---------- driver ----------
 def mod_files(root):
     """(path inside the game data, lowercase with '/', file path) for every file under a known top folder, at any depth of wrapper folders"""
@@ -218,7 +231,8 @@ def mod_files(root):
             full = os.path.join(dp, f); parts = os.path.relpath(full, root).split(os.sep)
             k = next((i for i, p in enumerate(parts) if p.lower() in KNOWN), None)
             if k is not None: out.append(('/'.join(parts[k:]), full))
-            elif re.fullmatch(r'c\d{4}\.(anibnd|chrbnd)\.dcx', f.lower()): out.append(('chr/' + f, full))   # loose character file (Modern Roll ships c0000.anibnd.dcx bare)
+            elif re.fullmatch(r'c\d{4}\.(anibnd|chrbnd)\.dcx', f.lower()): out.append(('chr/' + f, full))
+            elif f.lower() == 'frpg_main.fsb': out.append(('sound/frpg_main.fsb', full))   # PC sound bank (DS3 Sound Mod ships it bare, next to its .bak)   # loose character file (Modern Roll ships c0000.anibnd.dcx bare)
     return out
 
 def main(mod, R, out):
@@ -237,6 +251,15 @@ def main(mod, R, out):
                 arc = next((folder + s for s in TEX_ARCHIVES if rom.get('/' + folder + s) is not None), None)
                 if arc is None: rep.append((rel, 'skipped', f'no Switch archive {folder}.*')); continue
                 loose.setdefault(arc, {})[name[:-4].lower()] = d; continue
+            if low.startswith(('movww/', 'movjp/')) and low.endswith('.bik'):   # PC Bink movie -> the Switch H.264 mp4 of the same name (no audio track, like the Switch's)
+                mp4 = rel[:-4] + '.mp4'
+                if rom.get('/' + mp4) is None and not os.path.exists(os.path.join(R, mp4)): rep.append((rel, 'skipped', 'the Switch game has no such movie')); continue
+                put(mp4, bik_to_mp4(full)); rep.append((rel, 'ported', f'movie re-encoded to {mp4} (H.264, no sound)')); continue
+            if low == 'sound/frpg_main.fsb':   # PC FSB4 (MP3) bank -> the Switch FMOD Studio bank (FSB5, FADPCM); the .bak beside it, when shipped, is the PC original
+                bak = full + '.bak'; base = open(bak, 'rb').read() if os.path.exists(bak) else None
+                new, names = fsb.port_fsb4(d, rom.get('/sound/frpg_main.bank'), base)
+                if new is None: rep.append((rel, 'unchanged', 'no sound differs')); continue
+                put('sound/frpg_main.bank', new); rep.append((rel, 'ported', f'{len(names)} sounds re-encoded into sound/frpg_main.bank')); continue
             s = sw(rel)
             if s is None: rep.append((rel, 'skipped', 'the Switch game has no such file')); continue
             if low.endswith('.msgbnd.dcx'):
