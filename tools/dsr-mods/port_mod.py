@@ -29,7 +29,11 @@ class Rom:
         self.R = R; self.idx = [bhd5_entries(f'{R}/dvdbnd{i}.bhd5') for i in range(2)]
     def get(self, p):
         h = fs_hash(p)
+        loose = f'{self.R}/_files{p}'   # a partial RomFS (archive files copied out by path, for converting elsewhere) has no .bdt
+        if os.path.exists(loose):
+            with open(loose, 'rb') as f: return f.read()
         for i in range(2):
+            if not os.path.exists(f'{self.R}/dvdbnd{i}.bdt'): continue
             if h in self.idx[i]:
                 _, sz, o = self.idx[i][h]
                 with open(f'{self.R}/dvdbnd{i}.bdt', 'rb') as f: f.seek(o); return f.read(sz)
@@ -92,13 +96,18 @@ def param_rows(d):
     size = (offs[1] - offs[0]) if len(offs) > 1 else end - offs[0]
     return {r[0]: r[1] for r in rows}, size
 
+# DrawParam rows whose PC layout is wider than the Switch one (learned on all 9 areas of Visual Overhaul against the Switch rows):
+#   ToneMapBank 48 -> 40: four u16 settings at the start are u8 on Switch, and the PC adds one float at the end (no Switch field)
+#   ToneCorrectBank 36 -> 32: the PC adds one float at the end
+ROW_TO_SWITCH = {(48, 40): lambda r: bytes(r[0:8:2]) + r[8:44], (36, 32): lambda r: r[:32]}
 def port_param(sw, pc):
     srows, ss = param_rows(sw); prows, ps = param_rows(pc)
-    if ss != ps: return None, f'row size {ps} (PC) / {ss} (Switch)'
+    conv = ROW_TO_SWITCH.get((ps, ss)) if ss != ps else (lambda r: r)
+    if conv is None: return None, f'row size {ps} (PC) / {ss} (Switch)'
     out = bytearray(sw); k = 0; extra = 0
     for rid, o in prows.items():
         if rid not in srows: extra += 1; continue
-        a = pc[o:o + ps]
+        a = conv(pc[o:o + ps])
         if out[srows[rid]:srows[rid] + ss] != a: out[srows[rid]:srows[rid] + ss] = a; k += 1
     return (bytes(out) if k else None), f'{k} rows' + (f', {extra} rows the Switch file lacks skipped' if extra else '')
 
@@ -234,6 +243,7 @@ def mod_files(root):
             k = next((i for i, p in enumerate(parts) if p.lower() in KNOWN), None)
             if k is not None: out.append(('/'.join(parts[k:]), full))
             elif re.fullmatch(r'c\d{4}\.(anibnd|chrbnd)\.dcx', f.lower()): out.append(('chr/' + f, full))
+            elif re.fullmatch(r'(a\d\d|default|s\d\d)_drawparam\.parambnd\.dcx', f.lower()): out.append(('param/DrawParam/' + f, full))   # bare DrawParam files (Visual Overhaul's 564 variants)
             elif f.lower() == 'frpg_main.fsb': out.append(('sound/frpg_main.fsb', full))   # PC sound bank (DS3 Sound Mod ships it bare, next to its .bak)   # loose character file (Modern Roll ships c0000.anibnd.dcx bare)
     return out
 
