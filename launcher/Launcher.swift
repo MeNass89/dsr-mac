@@ -45,15 +45,16 @@ struct Settings: Codable, Equatable {
     var modOrder: [String] = []    // priority, first wins
     var textures = "switch"        // switch, or pc: the PC version's textures where they are better (game/pctextures, built from the user's PC copy)
     var pack = true                // the recommended mod pack (Resources/pack: the mods whose authors allow re-upload), converted at first use
+    var record = false             // settings.json only: log every controller and key input (DM_PADLOG, DM_KEYLOG) into the run's log, for a test session
     var colorspace = ""            // "", srgb or p3: the game layer's colour space tag (DM_LAYER_COLORSPACE; settings.json only, a test for the fullscreen purple bands on XDR)
 }
 extension Settings {   // missing keys keep their defaults, so a settings file from an older launcher still loads
-    enum K: String, CodingKey { case resolution, fps, fullscreen, perfOverlay, faceButtons, buttonPrompts, volume, skipWindow, mods, modOrder, textures, colorspace, pack }
+    enum K: String, CodingKey { case resolution, fps, fullscreen, perfOverlay, faceButtons, buttonPrompts, volume, skipWindow, mods, modOrder, textures, colorspace, pack, record }
     init(from dec: Decoder) throws {
         self.init(); let c = try dec.container(keyedBy: K.self)
         func g<T: Decodable>(_ k: K, _ v: inout T) { if let x = try? c.decode(T.self, forKey: k) { v = x } }
         g(.resolution, &resolution); g(.fps, &fps); g(.fullscreen, &fullscreen); g(.perfOverlay, &perfOverlay); g(.faceButtons, &faceButtons)
-        g(.buttonPrompts, &buttonPrompts); g(.volume, &volume); g(.skipWindow, &skipWindow); g(.mods, &mods); g(.modOrder, &modOrder); g(.textures, &textures); g(.colorspace, &colorspace); g(.pack, &pack)
+        g(.buttonPrompts, &buttonPrompts); g(.volume, &volume); g(.skipWindow, &skipWindow); g(.mods, &mods); g(.modOrder, &modOrder); g(.textures, &textures); g(.colorspace, &colorspace); g(.pack, &pack); g(.record, &record)
     }
 }
 func loadSettings() -> Settings {
@@ -101,23 +102,34 @@ func portTool() -> URL? {
     for u in [gameRes.appendingPathComponent("tools/dsr-mods/port_mod.py"), bundleRes.appendingPathComponent("dsr-mods/port_mod.py")] where FileManager.default.fileExists(atPath: u.path) { return u }
     return nil
 }
-func portedMod(_ dir: URL) -> URL {
+// base: the files of the mods applied before this one (a cumulative stack, see buildOverlay); the converter merges this mod onto them, so two mods that
+// change the same archive (menu text, menu textures) both land. The output then holds the base's files too and replaces it.
+func portedMod(_ dir: URL, base: URL? = nil, name: String? = nil) -> URL {   // name: the mod's name in the list (its inner folder may be "Texture Override" in several mods)
     guard let tool = portTool() else { return dir }
-    let fm = FileManager.default, out = portedDir.appendingPathComponent(dir.lastPathComponent), stamp = out.appendingPathComponent(".source")
+    let fm = FileManager.default, out = portedDir.appendingPathComponent(name ?? dir.lastPathComponent), stamp = out.appendingPathComponent(".source")
     let key = modFiles(dir).map { (rel, u) -> String in
         let a = try? fm.attributesOfItem(atPath: u.path)
         return "\(rel)\t\((a?[.size] as? UInt64) ?? 0)\t\(((a?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0))"
     }.sorted().joined(separator: "\n") + "\n" + ((try? String(contentsOf: tool, encoding: .utf8))?.count.description ?? "")
+        + "\nbase " + (base.flatMap { try? String(contentsOf: $0.appendingPathComponent(".source"), encoding: .utf8) }.map { k in String(k.utf8.reduce(UInt64(1469598103934665603)) { ($0 ^ UInt64($1)) &* 1099511628211 }) } ?? "-")   // FNV-1a of the base's key
     if (try? String(contentsOf: stamp, encoding: .utf8)) == key { return out }
     try? fm.removeItem(at: out); try? fm.createDirectory(at: out, withIntermediateDirectories: true)
     // The Python install.sh ran (game/tools/python: it has numpy etcpak texture2ddecoder in its user site-packages, so no -I), else python3 on PATH
     let py = (try? String(contentsOf: gameRes.appendingPathComponent("tools/python"), encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     let p = Process(); p.executableURL = URL(fileURLWithPath: py.isEmpty ? "/usr/bin/env" : py)
-    p.arguments = (py.isEmpty ? ["python3"] : []) + ["-B", tool.path, dir.path, gameRes.appendingPathComponent("romfs").path, out.path]
+    var args: [String] = py.isEmpty ? ["python3"] : []
+    args += ["-B", tool.path]; if let b = base { args += ["--base", b.path] }
+    args += [dir.path, gameRes.appendingPathComponent("romfs").path, out.path]; p.arguments = args
     p.currentDirectoryURL = out
     p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
     do { try p.run(); p.waitUntilExit() } catch { return dir }
     guard p.terminationStatus == 0 else { return dir }   // Python or its modules missing: the mod goes in as it is, as before
+    if let b = base {   // carry the base's files the mod did not touch, so the output is the whole stack so far
+        for (rel, u) in modFiles(b) where !rel.hasSuffix(".tsv") && !rel.hasSuffix("/.source") {
+            let dst = out.appendingPathComponent(rel); if fm.fileExists(atPath: dst.path) { continue }
+            try? fm.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true); try? fm.copyItem(at: u, to: dst)   // APFS clone
+        }
+    }
     try? key.write(to: stamp, atomically: true, encoding: .utf8)
     return out
 }
@@ -167,7 +179,16 @@ func buildOverlay(_ s: Settings) throws -> [String: ModReport] {
     var enabled = s.modOrder.filter { s.mods[$0] == true }.map { modsDir.appendingPathComponent($0) }
     var packs: [(String, TexturePack)] = enabled.compactMap { d in loadPack(d.appendingPathComponent("_pack")).map { (d.lastPathComponent, $0) } }   // after the file mods, before PC textures
     enabled.removeAll { fm.fileExists(atPath: $0.appendingPathComponent("_pack/textures.index").path) }
-    if s.pack, let p = packStack() { enabled.append(p) }   // after the user's own mods: a mod the user adds wins over the pack where both replace a file
+    // The pack and the user's file mods are converted as one stack, lowest priority first (the pack, then the user's list from the bottom up): each mod is
+    // merged onto the files of the ones below it, so two mods that change the same archive (menu text, menu textures) both keep their part. The top of
+    // the stack holds every change; the per-mod reports come from each mod's own port.tsv.
+    var stackTop: URL? = s.pack ? packStack() : nil
+    var stackNames: [String] = []
+    for d in enabled.reversed() {
+        if fm.fileExists(atPath: d.appendingPathComponent("port.tsv").path) { continue }   // already converted elsewhere: laid as it is below
+        stackTop = portedMod(modRoot(d), base: stackTop, name: d.lastPathComponent); stackNames.append(d.lastPathComponent)
+    }
+    enabled = enabled.filter { fm.fileExists(atPath: $0.appendingPathComponent("port.tsv").path) } + (stackTop.map { [$0] } ?? [])
     if let g = glyphSet(s) { enabled.append(g) }   // the button pictures come last among the mods: a mod that replaces the same font or menu archive wins
     if let p = texturePack(s) { packs.append(("PC textures", p)) }
     if enabled.isEmpty && packs.isEmpty { return reports }
@@ -186,12 +207,10 @@ func buildOverlay(_ s: Settings) throws -> [String: ModReport] {
     var done = Set<UInt32>(), modHashes = Set<UInt32>()
     let glyphs = glyphSet(s)
     for dir in enabled {
-        let name = dir.path.hasPrefix(portedDir.path) ? "Recommended pack" : dir.lastPathComponent
+        let isStack = dir == stackTop
+        let name = isStack ? "Mods" : dir.lastPathComponent
         var r = ModReport()
-        // already in Switch form: the button pictures, the pack, or a mod folder converted elsewhere (port.tsv at its root, e.g. a multi-GB texture pack)
-        let preconverted = dir == glyphs || dir.path.hasPrefix(portedDir.path) || fm.fileExists(atPath: dir.appendingPathComponent("port.tsv").path)
-        let src = preconverted ? dir : portedMod(modRoot(dir))
-        if src != dir { r.unknown = portReport(name).skipped }
+        let src = dir   // everything here is already in Switch form: the converted stack, the button pictures, or a mod converted elsewhere (port.tsv at its root)
         for (rel, url) in modFiles(src) {
             if rel.hasSuffix(".tsv") || rel.hasSuffix("/.source") { continue }
             let path = rel.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -214,6 +233,11 @@ func buildOverlay(_ s: Settings) throws -> [String: ModReport] {
             bhd[a].replaceSubrange(eo + 4..<eo + 8, with: Data(bytes: &sz, count: 4))
             bhd[a].replaceSubrange(eo + 8..<eo + 16, with: Data(bytes: &o, count: 8))
             done.insert(h); modHashes.insert(h); r.replaced += 1
+        }
+        if isStack {   // one report line per stacked mod, from its converter report
+            for n in stackNames { let pr = portReport(n); reports[n] = ModReport(replaced: pr.ported, unknown: pr.skipped) }
+            if s.pack { reports["Recommended pack"] = ModReport(replaced: packMods().filter { $0.status == "included" }.count, unknown: []) }
+            continue
         }
         reports[name] = r
     }
@@ -319,6 +343,7 @@ final class Game: ObservableObject {
         if s.resolution != 1080 { e["DM_MEM_RESERVE"] = "0x200000000"; e["DM_APP_POOL"] = "0x1A0000000" }   // bigger targets need a larger guest heap and allocator pool
         if s.fullscreen { e["DM_FULLSCREEN"] = "1" }
         if !s.colorspace.isEmpty { e["DM_LAYER_COLORSPACE"] = s.colorspace }
+        if s.record { e["DM_PADLOG"] = "1"; e["DM_KEYLOG"] = "1" }
         if s.perfOverlay { e["MTL_HUD_ENABLED"] = "1" }
         if s.faceButtons == "label" { e["DM_FACE_BUTTONS"] = "label" }
         e["DM_VOLUME"] = String(Int(s.volume))
@@ -337,6 +362,11 @@ final class Game: ObservableObject {
         p.executableURL = bundleMacOS.appendingPathComponent("dmhost")
         p.arguments = [gameRes.appendingPathComponent(main(s)).path]
         p.environment = env(s, overlay: overlay)
+        if fm.fileExists(atPath: logFile.path), let a = try? fm.attributesOfItem(atPath: logFile.path), let d = a[.modificationDate] as? Date {   // keep the previous run's log
+            let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmmss"; let old = support.appendingPathComponent("logs"); try? fm.createDirectory(at: old, withIntermediateDirectories: true)
+            try? fm.moveItem(at: logFile, to: old.appendingPathComponent("run-\(f.string(from: d)).log"))
+            for u in ((try? fm.contentsOfDirectory(at: old, includingPropertiesForKeys: nil)) ?? []).sorted(by: { $0.path > $1.path }).dropFirst(10) { try? fm.removeItem(at: u) }   // last 10 runs
+        }
         fm.createFile(atPath: logFile.path, contents: nil)
         if let h = try? FileHandle(forWritingTo: logFile) { p.standardOutput = h; p.standardError = h }
         p.terminationHandler = { pr in DispatchQueue.main.async { self.running = false; self.lastExit = pr.terminationStatus; onExit() } }

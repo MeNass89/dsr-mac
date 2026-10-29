@@ -108,24 +108,28 @@ def param_rows(d):
 #   ToneMapBank 48 -> 40: four u16 settings at the start are u8 on Switch, and the PC adds one float at the end (no Switch field)
 #   ToneCorrectBank 36 -> 32: the PC adds one float at the end
 ROW_TO_SWITCH = {(48, 40): lambda r: bytes(r[0:8:2]) + r[8:44], (36, 32): lambda r: r[:32]}
-def port_param(sw, pc):
+def port_param(sw, pc, orig=None):
+    """orig: the game's own param; a row equal to it (after layout conversion) is one the mod leaves alone, so a mod applied earlier keeps it"""
     srows, ss = param_rows(sw); prows, ps = param_rows(pc)
+    orows = param_rows(orig)[0] if orig is not None else {}
     conv = ROW_TO_SWITCH.get((ps, ss)) if ss != ps else (lambda r: r)
     if conv is None: return None, f'row size {ps} (PC) / {ss} (Switch)'
     out = bytearray(sw); k = 0; extra = 0
     for rid, o in prows.items():
         if rid not in srows: extra += 1; continue
         a = conv(pc[o:o + ps])
+        if rid in orows and orig[orows[rid]:orows[rid] + ss] == a: continue
         if out[srows[rid]:srows[rid] + ss] != a: out[srows[rid]:srows[rid] + ss] = a; k += 1
     return (bytes(out) if k else None), f'{k} rows' + (f', {extra} rows the Switch file lacks skipped' if extra else '')
 
-def port_parambnd(sw, pc):
+def port_parambnd(sw, pc, orig=None):
     head, s = undcx(sw); _, p = undcx(pc)
     pcs = {leaf(n): x for n, x in bnd3_files(p)}; outs = []; notes = []; changed = 0
+    ors = {leaf(n): x for n, x in bnd3_files(undcx(orig)[1])} if orig else {}
     for n, x in bnd3_files(s):
         y = pcs.get(leaf(n))
         if y is not None:
-            r, why = port_param(x, y)
+            r, why = port_param(x, y, ors.get(leaf(n)))
             if r is not None: x = r; changed += 1
             if r is not None or 'size' in why: notes.append(f'{leaf(n)}: {why}')
         outs.append(x)
@@ -294,16 +298,16 @@ def main(mod, R, out, base=None):
             if s is None: rep.append((rel, 'skipped', 'the Switch game has no such file')); continue
             if low.endswith('.msgbnd.dcx'):
                 lang = rel.rsplit('/', 1)[0]; paths = [f'{lang}/item.msgbnd.dcx', f'{lang}/menu.msgbnd.dcx']
-                ch = msg_changes(sw_msg_tables([sw(q) for q in paths if sw(q)]), d); parts = []
+                ch = msg_changes(sw_msg_tables([rom.get('/' + q) for q in paths if rom.get('/' + q)]), d); parts = []   # changes against the game's own text, then applied onto the stack
                 for q in paths:
                     if sw(q) is None: continue
                     r, k = apply_msg(sw(q), ch)
                     if r is not None: put(q, r); parts.append(f'{q.rsplit("/", 1)[1]} {k}')
                 rep.append((rel, 'ported' if parts else 'unchanged', 'text entries: ' + (', '.join(parts) or 'none differ'))); continue
-            elif low.endswith('.parambnd.dcx'): new, why = port_parambnd(s, d)
+            elif low.endswith('.parambnd.dcx'): new, why = port_parambnd(s, d, rom.get('/' + rel))
             elif low.endswith(('.tpf', '.tpf.dcx')):
                 texs = pc_tpf_textures(d); _, st = undcx(s)
-                texs = {k: v for k, v in texs.items() if not unchanged(st, k, v)} if st[:4] == b'TPF\0' else texs
+                _, ot = undcx(rom.get('/' + rel)); texs = {k: v for k, v in texs.items() if not unchanged(ot, k, v)} if ot[:4] == b'TPF\0' else texs   # vs the game's own textures
                 notes = []; new = redo(s, texs, notes) if texs else None; why = f'{len(texs)} changed textures: ' + ', '.join(notes) if texs else 'no texture differs from the Switch one'
             elif low.endswith('.emevd.dcx') or low.endswith('.emevd'):
                 h, e = undcx(d); hs, _ = undcx(s)
