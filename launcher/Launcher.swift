@@ -165,10 +165,12 @@ func buildOverlay(_ s: Settings) throws -> [String: ModReport] {
     try? fm.removeItem(at: overlayDir); try fm.createDirectory(at: overlayDir, withIntermediateDirectories: true)
     var reports: [String: ModReport] = [:]
     var enabled = s.modOrder.filter { s.mods[$0] == true }.map { modsDir.appendingPathComponent($0) }
+    var packs: [(String, TexturePack)] = enabled.compactMap { d in loadPack(d.appendingPathComponent("_pack")).map { (d.lastPathComponent, $0) } }   // after the file mods, before PC textures
+    enabled.removeAll { fm.fileExists(atPath: $0.appendingPathComponent("_pack/textures.index").path) }
     if s.pack, let p = packStack() { enabled.append(p) }   // after the user's own mods: a mod the user adds wins over the pack where both replace a file
     if let g = glyphSet(s) { enabled.append(g) }   // the button pictures come last among the mods: a mod that replaces the same font or menu archive wins
-    let pack = texturePack(s)
-    if enabled.isEmpty && pack == nil { return reports }
+    if let p = texturePack(s) { packs.append(("PC textures", p)) }
+    if enabled.isEmpty && packs.isEmpty { return reports }
     var bhd = [Data](), bdtSize = [UInt64](), index = [[UInt32: Int]](), appends = [Data]()   // per archive: index bytes, data size, hash → entry offset in the index
     for i in 0..<2 {
         let b = try Data(contentsOf: gameRes.appendingPathComponent("romfs/dvdbnd\(i).bhd5"))
@@ -181,12 +183,14 @@ func buildOverlay(_ s: Settings) throws -> [String: ModReport] {
         for k in 0..<nb { let cnt = Int(u32(bo + k * 16)), off = Int(u64(bo + k * 16 + 8)); for e in 0..<cnt { m[u32(off + e * 16)] = off + e * 16 } }
         index.append(m)
     }
-    var done = Set<UInt32>(), packSize = [UInt64](repeating: 0, count: 2)
+    var done = Set<UInt32>(), modHashes = Set<UInt32>()
     let glyphs = glyphSet(s)
     for dir in enabled {
         let name = dir.path.hasPrefix(portedDir.path) ? "Recommended pack" : dir.lastPathComponent
         var r = ModReport()
-        let src = dir == glyphs || dir.path.hasPrefix(portedDir.path) ? dir : portedMod(modRoot(dir))
+        // already in Switch form: the button pictures, the pack, or a mod folder converted elsewhere (port.tsv at its root, e.g. a multi-GB texture pack)
+        let preconverted = dir == glyphs || dir.path.hasPrefix(portedDir.path) || fm.fileExists(atPath: dir.appendingPathComponent("port.tsv").path)
+        let src = preconverted ? dir : portedMod(modRoot(dir))
         if src != dir { r.unknown = portReport(name).skipped }
         for (rel, url) in modFiles(src) {
             if rel.hasSuffix(".tsv") || rel.hasSuffix("/.source") { continue }
@@ -209,36 +213,43 @@ func buildOverlay(_ s: Settings) throws -> [String: ModReport] {
             var sz = UInt32(data.count), o = off
             bhd[a].replaceSubrange(eo + 4..<eo + 8, with: Data(bytes: &sz, count: 4))
             bhd[a].replaceSubrange(eo + 8..<eo + 16, with: Data(bytes: &o, count: 8))
-            done.insert(h); r.replaced += 1
+            done.insert(h); modHashes.insert(h); r.replaced += 1
         }
         reports[name] = r
     }
-    // PC textures: lowest priority (any mod or button set replacing the same archive wins). textures.append is cloned (APFS: no copy) as the start of
-    // the archive's append, the mods' data follows it, so their offsets above move by the pack size.
-    if let p = pack {
-        var r = ModReport(); var moved = Set<UInt32>()
+    // Texture packs (a big converted texture mod, then the PC textures): lower priority than every file mod. Each pack's textures.append is cloned
+    // (APFS: no copy) into the archive's append, the packs back to back, then the mods' data; the mods' offsets above move past all packs.
+    var base = [UInt64](repeating: 0, count: 2)   // per archive: bytes of packs laid so far in the append
+    var parts = [[(URL, UInt64)]](repeating: [], count: 2)
+    for (name, p) in packs {
+        var r = ModReport(); var used = [false, false]
         for (a, h, off, size) in p.entries where index[a][h] != nil && !done.contains(h) {
-            let eo = index[a][h]!; var sz = UInt32(size), o = bdtSize[a] + off
+            let eo = index[a][h]!; var sz = UInt32(size), o = bdtSize[a] + base[a] + off
             bhd[a].replaceSubrange(eo + 4..<eo + 8, with: Data(bytes: &sz, count: 4))
             bhd[a].replaceSubrange(eo + 8..<eo + 16, with: Data(bytes: &o, count: 8))
-            moved.insert(h); r.replaced += 1; packSize[a] = p.size
+            done.insert(h); r.replaced += 1; used[a] = true
         }
-        for a in 0..<2 where packSize[a] > 0 {   // shift the mods' entries of this archive past the pack (16-aligned)
-            let shift = (packSize[a] + 15) / 16 * 16
-            for h in done { if let eo = index[a][h] { var o = bhd[a].subdata(in: eo + 8..<eo + 16).withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) } + shift
-                bhd[a].replaceSubrange(eo + 8..<eo + 16, with: Data(bytes: &o, count: 8)) } }
-        }
-        reports["PC textures"] = r
+        for a in 0..<2 where used[a] { parts[a].append((p.data, p.size)); base[a] += (p.size + 15) / 16 * 16 }
+        reports[name] = r
     }
-    for i in 0..<2 where !appends[i].isEmpty || packSize[i] > 0 {
+    for a in 0..<2 where base[a] > 0 {   // shift the file mods' entries of this archive past the packs
+        for h in modHashes { if let eo = index[a][h] { var o = bhd[a].subdata(in: eo + 8..<eo + 16).withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) } + base[a]
+            bhd[a].replaceSubrange(eo + 8..<eo + 16, with: Data(bytes: &o, count: 8)) } }
+    }
+    for i in 0..<2 where !appends[i].isEmpty || !parts[i].isEmpty {
         try bhd[i].write(to: overlayDir.appendingPathComponent("dvdbnd\(i).bhd5"))
         let ap = overlayDir.appendingPathComponent("dvdbnd\(i).bdt.append")
-        if packSize[i] > 0, let p = pack {
-            if appends[i].isEmpty { try FileManager.default.createSymbolicLink(at: ap, withDestinationURL: p.data); continue }   // pack alone: no copy at all
-            try FileManager.default.copyItem(at: p.data, to: ap)   // pack + mods: an APFS clone when on the same volume (the app bundle), a copy otherwise
-            let h = try FileHandle(forWritingTo: ap); defer { try? h.close() }
-            let pad = Int((16 - packSize[i] % 16) % 16); try h.seekToEnd(); h.write(Data(count: pad) + appends[i])
-        } else { try appends[i].write(to: ap) }
+        if parts[i].count == 1 && appends[i].isEmpty { try fm.createSymbolicLink(at: ap, withDestinationURL: parts[i][0].0); continue }   // one pack alone: no copy at all
+        if let first = parts[i].first { try fm.copyItem(at: first.0, to: ap) } else { fm.createFile(atPath: ap.path, contents: nil) }   // APFS clone on the same volume
+        let h = try FileHandle(forWritingTo: ap); defer { try? h.close() }
+        for (k, (u, size)) in parts[i].enumerated() {   // each pack starts 16-aligned: pad after the previous one, then copy it (the first is the clone)
+            if k > 0 {
+                let src = try FileHandle(forReadingFrom: u); defer { try? src.close() }
+                try h.seekToEnd(); while let c = try src.read(upToCount: 64 << 20), !c.isEmpty { h.write(c) }
+            }
+            try h.seekToEnd(); h.write(Data(count: Int((16 - size % 16) % 16)))
+        }
+        try h.seekToEnd(); h.write(appends[i])
     }
     return reports
 }
@@ -251,7 +262,11 @@ func texturePackDir() -> URL { gameRes.appendingPathComponent("pctextures") }
 func texturePackAvailable() -> Bool { FileManager.default.fileExists(atPath: texturePackDir().appendingPathComponent("textures.index").path) }
 func texturePack(_ s: Settings) -> TexturePack? {
     guard s.textures == "pc", texturePackAvailable() else { return nil }
-    let d = texturePackDir(), data = d.appendingPathComponent("textures.append")
+    return loadPack(texturePackDir())
+}
+// A big texture mod converted elsewhere ships the same way: mods/<name>/_pack/textures.append + textures.index (no copy into the overlay, cloned)
+func loadPack(_ d: URL) -> TexturePack? {
+    let data = d.appendingPathComponent("textures.append")
     guard let txt = try? String(contentsOf: d.appendingPathComponent("textures.index"), encoding: .utf8),
           let size = (try? FileManager.default.attributesOfItem(atPath: data.path)[.size]) as? UInt64 else { return nil }
     var e: [(Int, UInt32, UInt64, UInt64)] = []
