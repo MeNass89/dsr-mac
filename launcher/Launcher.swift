@@ -269,11 +269,11 @@ func buildOverlay(_ s: Settings) throws -> [String: ModReport] {
         for (k, (u, size)) in parts[i].enumerated() {   // each pack starts 16-aligned: pad after the previous one, then copy it (the first is the clone)
             if k > 0 {
                 let src = try FileHandle(forReadingFrom: u); defer { try? src.close() }
-                try h.seekToEnd(); while let c = try src.read(upToCount: 64 << 20), !c.isEmpty { h.write(c) }
+                try h.seekToEnd(); while let c = try src.read(upToCount: 64 << 20), !c.isEmpty { try h.write(contentsOf: c) }
             }
-            try h.seekToEnd(); h.write(Data(count: Int((16 - size % 16) % 16)))
+            try h.seekToEnd(); try h.write(contentsOf: Data(count: Int((16 - size % 16) % 16)))
         }
-        try h.seekToEnd(); h.write(appends[i])
+        try h.seekToEnd(); try h.write(contentsOf: appends[i])   // the throwing write: the old h.write raised an Objective-C exception on a full disk, which killed the app with no message
     }
     return reports
 }
@@ -328,6 +328,7 @@ func glyphSet(_ s: Settings) -> URL? {
 final class Game: ObservableObject {
     @Published var running = false
     @Published var lastExit: Int32 = 0
+    @Published var problem = ""   // why Play stopped before the game started (the mods could not be laid out), shown on the Play pane
     var proc: Process?
     func env(_ s: Settings, overlay: Bool) -> [String: String] {
         var e = ProcessInfo.processInfo.environment
@@ -357,7 +358,14 @@ final class Game: ObservableObject {
         let fm = FileManager.default
         for d in [saveDir, support.appendingPathComponent("temp"), modsDir] { try? fm.createDirectory(at: d, withIntermediateDirectories: true) }
         promptWait = 1.5; defer { promptWait = 0 }   // at Play, give a controller that is just waking up a moment to appear
-        let overlay = (try? buildOverlay(s)).map { !$0.isEmpty } ?? false
+        problem = ""
+        let overlay: Bool
+        do { overlay = !(try buildOverlay(s)).isEmpty } catch {   // most often a full disk: the overlay takes about the size of the texture packs
+            let free = ((try? support.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage).map { $0 / 1_000_000_000 } ?? -1
+            problem = T("The mods could not be prepared (\(error.localizedDescription)). Free space on this Mac: \(free) GB; the mods need about 10 GB.",
+                        "Les mods n'ont pas pu être préparés (\(error.localizedDescription)). Espace libre sur ce Mac : \(free) Go ; les mods ont besoin d'environ 10 Go.")
+            try? fm.removeItem(at: overlayDir); lastExit = -1; onExit(); return
+        }
         let p = Process()
         p.executableURL = bundleMacOS.appendingPathComponent("dmhost")
         p.arguments = [gameRes.appendingPathComponent(main(s)).path]
@@ -453,7 +461,9 @@ struct PlayPane: View {
             if activeMods > 0 { Text(T("\(activeMods) mod(s) active", "\(activeMods) mod(s) actif(s)")).font(.callout).foregroundStyle(.orange) }
             Button { play(s, game) } label: { Text(game.running ? T("Running…", "En cours…") : T("Play", "Jouer")).font(.title2.weight(.semibold)).frame(width: 220, height: 44) }
                 .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.defaultAction).disabled(game.running)
-            if game.lastExit != 0 && !game.running {
+            if !game.problem.isEmpty && !game.running {
+                Text(game.problem).font(.callout).foregroundStyle(.red)
+            } else if game.lastExit != 0 && !game.running {
                 Text(T("The game ended unexpectedly (code \(game.lastExit)). The log is in About.", "Le jeu s'est arrêté de façon inattendue (code \(game.lastExit)). Le journal est dans À propos."))
                     .font(.callout).foregroundStyle(.red)
             }
