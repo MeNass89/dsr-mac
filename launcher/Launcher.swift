@@ -2,6 +2,7 @@
 // matching environment and the window comes back when the game ends. Hold Option at launch to see the window when "skip this window" is on.
 // Build: swiftc -O -parse-as-library Launcher.swift -o DarkSouls (install.sh step 8)
 import SwiftUI
+import UniformTypeIdentifiers
 import AppKit
 import GameController
 
@@ -43,15 +44,16 @@ struct Settings: Codable, Equatable {
     var mods: [String: Bool] = [:] // mod folder name → enabled
     var modOrder: [String] = []    // priority, first wins
     var textures = "switch"        // switch, or pc: the PC version's textures where they are better (game/pctextures, built from the user's PC copy)
+    var pack = true                // the recommended mod pack (Resources/pack: the mods whose authors allow re-upload), converted at first use
     var colorspace = ""            // "", srgb or p3: the game layer's colour space tag (DM_LAYER_COLORSPACE; settings.json only, a test for the fullscreen purple bands on XDR)
 }
 extension Settings {   // missing keys keep their defaults, so a settings file from an older launcher still loads
-    enum K: String, CodingKey { case resolution, fps, fullscreen, perfOverlay, faceButtons, buttonPrompts, volume, skipWindow, mods, modOrder, textures, colorspace }
+    enum K: String, CodingKey { case resolution, fps, fullscreen, perfOverlay, faceButtons, buttonPrompts, volume, skipWindow, mods, modOrder, textures, colorspace, pack }
     init(from dec: Decoder) throws {
         self.init(); let c = try dec.container(keyedBy: K.self)
         func g<T: Decodable>(_ k: K, _ v: inout T) { if let x = try? c.decode(T.self, forKey: k) { v = x } }
         g(.resolution, &resolution); g(.fps, &fps); g(.fullscreen, &fullscreen); g(.perfOverlay, &perfOverlay); g(.faceButtons, &faceButtons)
-        g(.buttonPrompts, &buttonPrompts); g(.volume, &volume); g(.skipWindow, &skipWindow); g(.mods, &mods); g(.modOrder, &modOrder); g(.textures, &textures); g(.colorspace, &colorspace)
+        g(.buttonPrompts, &buttonPrompts); g(.volume, &volume); g(.skipWindow, &skipWindow); g(.mods, &mods); g(.modOrder, &modOrder); g(.textures, &textures); g(.colorspace, &colorspace); g(.pack, &pack)
     }
 }
 func loadSettings() -> Settings {
@@ -119,6 +121,36 @@ func portedMod(_ dir: URL) -> URL {
     try? key.write(to: stamp, atomically: true, encoding: .utf8)
     return out
 }
+// The recommended pack: Resources/pack/pack.tsv lists the mods (id, name, author, included|download, Nexus page, file, folder, what it does) and
+// Resources/pack/included/ holds the PC files of the included ones as their authors released them. tools/dsr-mods/build_pack.py converts them onto
+// this Mac's own Switch files and stacks them (mods-ported/_pack/_stack), once per pack and converter version. Nothing from the game ships.
+struct PackMod: Identifiable { let id, name, author, status, nexus, file, folder, what: String }
+let packDir = bundleRes.appendingPathComponent("pack")
+func packMods() -> [PackMod] {
+    guard let t = try? String(contentsOf: packDir.appendingPathComponent("pack.tsv"), encoding: .utf8) else { return [] }
+    return t.split(separator: "\n").compactMap { l in
+        if l.hasPrefix("#") { return nil }
+        let f = l.split(separator: "\t", omittingEmptySubsequences: false).map(String.init); guard f.count >= 8 else { return nil }
+        return PackMod(id: f[0], name: f[1], author: f[2], status: f[3], nexus: f[4], file: f[5], folder: f[6], what: f[7])
+    }
+}
+func packStack() -> URL? {
+    let fm = FileManager.default, out = portedDir.appendingPathComponent("_pack"), stack = out.appendingPathComponent("_stack"), stamp = out.appendingPathComponent(".source")
+    guard let tool = portTool()?.deletingLastPathComponent().appendingPathComponent("build_pack.py"), fm.fileExists(atPath: tool.path),
+          let list = try? String(contentsOf: packDir.appendingPathComponent("pack.tsv"), encoding: .utf8) else { return nil }
+    let conv = ["port_mod.py", "build_pack.py", "esd.py", "tae.py", "msb.py", "fsb.py", "fmg.py"].map { (try? String(contentsOf: tool.deletingLastPathComponent().appendingPathComponent($0), encoding: .utf8))?.count ?? 0 }
+    let key = list + "\n" + conv.map(String.init).joined(separator: ",")
+    if (try? String(contentsOf: stamp, encoding: .utf8)) == key, fm.fileExists(atPath: stack.path) { return stack }
+    try? fm.removeItem(at: out); try? fm.createDirectory(at: out, withIntermediateDirectories: true)
+    let py = (try? String(contentsOf: gameRes.appendingPathComponent("tools/python"), encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let p = Process(); p.executableURL = URL(fileURLWithPath: py.isEmpty ? "/usr/bin/env" : py)
+    p.arguments = (py.isEmpty ? ["python3"] : []) + ["-B", tool.path, packDir.appendingPathComponent("pack.tsv").path, packDir.appendingPathComponent("included").path, gameRes.appendingPathComponent("romfs").path, out.path]
+    p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+    do { try p.run(); p.waitUntilExit() } catch { return nil }
+    guard p.terminationStatus == 0 else { return nil }
+    try? key.write(to: stamp, atomically: true, encoding: .utf8)
+    return stack
+}
 // What the converter reported for a mod: (ported, not convertible) file lists, from mods-ported/<mod>/port.tsv
 func portReport(_ name: String) -> (ported: Int, skipped: [String]) {
     guard let t = try? String(contentsOf: portedDir.appendingPathComponent(name).appendingPathComponent("port.tsv"), encoding: .utf8) else { return (0, []) }
@@ -133,6 +165,7 @@ func buildOverlay(_ s: Settings) throws -> [String: ModReport] {
     try? fm.removeItem(at: overlayDir); try fm.createDirectory(at: overlayDir, withIntermediateDirectories: true)
     var reports: [String: ModReport] = [:]
     var enabled = s.modOrder.filter { s.mods[$0] == true }.map { modsDir.appendingPathComponent($0) }
+    if s.pack, let p = packStack() { enabled.append(p) }   // after the user's own mods: a mod the user adds wins over the pack where both replace a file
     if let g = glyphSet(s) { enabled.append(g) }   // the button pictures come last among the mods: a mod that replaces the same font or menu archive wins
     let pack = texturePack(s)
     if enabled.isEmpty && pack == nil { return reports }
@@ -151,9 +184,9 @@ func buildOverlay(_ s: Settings) throws -> [String: ModReport] {
     var done = Set<UInt32>(), packSize = [UInt64](repeating: 0, count: 2)
     let glyphs = glyphSet(s)
     for dir in enabled {
-        let name = dir.lastPathComponent
+        let name = dir.path.hasPrefix(portedDir.path) ? "Recommended pack" : dir.lastPathComponent
         var r = ModReport()
-        let src = dir == glyphs ? dir : portedMod(modRoot(dir))
+        let src = dir == glyphs || dir.path.hasPrefix(portedDir.path) ? dir : portedMod(modRoot(dir))
         if src != dir { r.unknown = portReport(name).skipped }
         for (rel, url) in modFiles(src) {
             if rel.hasSuffix(".tsv") || rel.hasSuffix("/.source") { continue }
@@ -494,8 +527,10 @@ struct ModsPane: View {
     @State var msg = ""
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(T("Mods replace game files: armour, weapons, characters, textures, texts, game parameters. Use mods made for Dark Souls Remastered on PC as unpacked files (chr/, parts/, map/, msg/, param/ …). Mods that change the program (DLL) do not work.",
-                   "Les mods remplacent des fichiers du jeu : armures, armes, personnages, textures, textes, paramètres de jeu. Utilisez des mods faits pour Dark Souls Remastered sur PC, sous forme de fichiers dépaquetés (chr/, parts/, map/, msg/, param/ …). Les mods qui modifient le programme (DLL) ne fonctionnent pas."))
+            PackView(s: $s, installed: Set(s.modOrder))
+            Divider()
+            Text(T("Your mods. Any mod made for Dark Souls Remastered on PC: add the file you downloaded (.zip, .7z, .rar or a folder) and the app converts it for this version. Mods that change the program (DLL) do not work.",
+                   "Vos mods. Tout mod fait pour Dark Souls Remastered sur PC : ajoutez le fichier téléchargé (.zip, .7z, .rar ou dossier), l'app le convertit pour cette version. Les mods qui modifient le programme (DLL) ne fonctionnent pas."))
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack {
                 Button(T("Add a mod…", "Ajouter un mod…")) { add() }
@@ -534,20 +569,57 @@ struct ModsPane: View {
     }
     func add() {
         let p = NSOpenPanel(); p.canChooseDirectories = true; p.canChooseFiles = true; p.allowsMultipleSelection = true
-        p.allowedContentTypes = [.folder, .zip]; p.message = T("Choose a mod folder or a .zip", "Choisissez un dossier de mod ou un .zip")
+        p.allowedContentTypes = [.folder, .zip, UTType(filenameExtension: "7z") ?? .archive, UTType(filenameExtension: "rar") ?? .archive, .archive]
+        p.message = T("Choose a mod: .zip, .7z, .rar or a folder", "Choisissez un mod : .zip, .7z, .rar ou dossier")
         guard p.runModal() == .OK else { return }
         try? FileManager.default.createDirectory(at: modsDir, withIntermediateDirectories: true)
         for u in p.urls {
             let name = u.deletingPathExtension().lastPathComponent, dest = modsDir.appendingPathComponent(name)
             try? FileManager.default.removeItem(at: dest)
-            if u.pathExtension.lowercased() == "zip" {
-                let t = Process(); t.executableURL = URL(fileURLWithPath: "/usr/bin/ditto"); t.arguments = ["-x", "-k", u.path, dest.path]; try? t.run(); t.waitUntilExit()
+            if ["zip", "7z", "rar"].contains(u.pathExtension.lowercased()) {   // macOS's bsdtar (libarchive) opens all three
+                try? FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+                let t = Process(); t.executableURL = URL(fileURLWithPath: "/usr/bin/bsdtar"); t.arguments = ["-xf", u.path, "-C", dest.path]; try? t.run(); t.waitUntilExit()
             } else { try? FileManager.default.copyItem(at: u, to: dest) }
         }
         scan(); check()
     }
     func check() {
         do { report = try buildOverlay(s); msg = T("Checked.", "Vérifié.") } catch { msg = T("Error: ", "Erreur : ") + error.localizedDescription }
+    }
+}
+
+struct PackView: View {
+    @Binding var s: Settings
+    let installed: Set<String>
+    var body: some View {
+        let mods = packMods(), inc = mods.filter { $0.status == "included" }, dl = mods.filter { $0.status != "included" }
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(isOn: $s.pack) { Text(T("Recommended mod pack", "Pack de mods recommandé")).font(.headline) }.toggleStyle(.switch)
+            Text(T("The best mods for this version, chosen and tested. \(inc.count) are included: their authors allow sharing them, they are converted the first time you play. \(dl.count) more cannot be shared (their authors' choice): download each one from Nexus and add it below, the app converts it.",
+                   "Les meilleurs mods pour cette version, choisis et testés. \(inc.count) sont inclus : leurs auteurs autorisent leur partage, ils sont convertis à la première partie. \(dl.count) autres ne peuvent pas être partagés (choix de leurs auteurs) : téléchargez-les sur Nexus et ajoutez-les plus bas, l'app les convertit."))
+                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            DisclosureGroup(T("Included (\(inc.count))", "Inclus (\(inc.count))")) {
+                ForEach(inc) { m in row(m, trailing: AnyView(EmptyView())) }
+            }
+            DisclosureGroup(T("To download (\(dl.count))", "À télécharger (\(dl.count))")) {
+                ForEach(dl) { m in
+                    row(m, trailing: AnyView(HStack {
+                        if installed.contains(where: { $0.localizedCaseInsensitiveContains(m.folder) || $0.localizedCaseInsensitiveContains(m.id) }) { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                        Button(T("Nexus page", "Page Nexus")) { if let u = URL(string: m.nexus + "?tab=files") { NSWorkspace.shared.open(u) } }
+                    }))
+                }
+            }
+        }
+    }
+    func row(_ m: PackMod, trailing: AnyView) -> some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(m.name).font(.callout.weight(.medium))
+                Text(m.what).font(.caption).foregroundStyle(.secondary)
+                Text(T("by ", "par ") + m.author).font(.caption2).foregroundStyle(.tertiary)
+            }
+            Spacer(); trailing
+        }.padding(.vertical, 3)
     }
 }
 

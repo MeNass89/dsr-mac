@@ -1,0 +1,21 @@
+# The recommended mod pack. One line per mod, in priority order (first wins where two replace the same picture).
+# status: included = the PC files ship with the app (the author allows re-upload with credit) and are converted on the user's Mac at first launch;
+#         download = the author does not allow re-upload: the app links to Nexus, the user drops the downloaded file, the app converts it.
+# folder: name in mods/ (included) and the file to pick on Nexus (download). Mods convert from the PC version; nothing from the Switch game ships.
+# id	name	author	status	nexus	file	folder	what it does
+91	Dark Souls Visual Overhaul	Spooonm4n	included	https://www.nexusmods.com/darksoulsremastered/mods/91	Dark Souls Visual Overhaul-91-1-0.7z	Dark Souls Visual Overhaul	New lighting, fog and colour grade in every area
+313	Better Bonfires	Dziggy	included	https://www.nexusmods.com/darksoulsremastered/mods/313	01 - Better Bonfire Menu v1.0.1-313-1-0-1-1613542559.zip	Better Bonfires	Warp to any lit bonfire, kindle and reverse hollowing from the bonfire menu
+615	Modern Roll	Nikolay97	included	https://www.nexusmods.com/darksoulsremastered/mods/615	Modern Roll-615-1-4-1740231362.7z	Modern Roll	A faster, more responsive roll
+138	Dark Souls 3 SFX Replacement	supedaglup (uploaded by tan90)	included	https://www.nexusmods.com/darksoulsremastered/mods/138	Dark Souls DS3 Sound Mod-138-0-0-3-1556339407.rar	DS3 Sounds	Sounds from Dark Souls III (parry, riposte, armour, firebombs, menus)
+6	Display Soul Values	Dziggy	included	https://www.nexusmods.com/darksoulsremastered/mods/6	A) Display Soul Values - Text Edition-1434-1-0.zip	Display Soul Values	Soul items show how many souls they give
+54	New Interface Icons REMASTERED	Evie Schwab (EvieWasTaken)	included	https://www.nexusmods.com/darksoulsremastered/mods/54	New Interface Icons Main Version-54-1-1.zip	New Interface Icons	Cleaner HUD and menu icons
+252	Clean HUD	Neolud	included	https://www.nexusmods.com/darksoulsremastered/mods/252	CleanUI-252-1-0-1592969068.zip	Clean HUD	Lighter health, stamina and item frames
+256	Improved Status Icons	GompOmp	included	https://www.nexusmods.com/darksoulsremastered/mods/256	ImprovedStatusIcons-256-1-0-0-1594324649.zip	Improved Status Icons	Sharper status effect icons
+220	DSR 2020 Textures	Evelyn Schwab (EvieWasTaken)	download	https://www.nexusmods.com/darksoulsremastered/mods/220	Update File, Objects NPCs and Enemies, Maps Part 01, Maps Part 02	DSR 2020 Textures	Higher resolution textures for maps, objects, enemies and NPCs
+29	Improved Face Textures REMASTERED	puKKa (uploaded by EvieWasTaken)	download	https://www.nexusmods.com/darksoulsremastered/mods/29	Improved Face Textures REMASTERED-29-1-6.zip	Improved Face Textures	Better faces for the player and NPCs
+469	Overinformative item descriptions	notaprofi	download	https://www.nexusmods.com/darksoulsremastered/mods/469	Overinformative-469-v1-1-1-1641642415.zip	Overinformative	Item descriptions with the real numbers: damage, scaling, effects
+51	Epic Menu Intro	BloodiestCODY (port of Robdood's mod)	download	https://www.nexusmods.com/darksoulsremastered/mods/51	Epic Menu Intro - Dark Souls Remastered	Epic Menu Intro	A new title screen video
+37	Das is Nito Loading	ItsMeJesusHChrist	download	https://www.nexusmods.com/darksoulsremastered/mods/37	Das Is Nito-37-1.zip	Das is Nito	A Nito loading screen
+32	Bloodborne Lock-on	FlyMaker, ajane (uploaded by SpongiePeanut)	download	https://www.nexusmods.com/darksoulsremastered/mods/32	Bloodborne Lock-on and High Vis Enemy Health Bars-32-1-1.7z	Bloodborne Lock-on	Bloodborne lock-on marker and easier to read enemy health bars
+20	Revamped Stat Buff Icons	SilentRequiem (ported by EvieWasTaken)	download	https://www.nexusmods.com/darksoulsremastered/mods/20	Revamped Stat Buff Icons-20-2-0.zip	Revamped Stat Buff Icons	Clear icons for active buffs under the health bar
+139	Dark Bandai Namco Intro Logo	Tom SEA (tomsea)	download	https://www.nexusmods.com/darksoulsremastered/mods/139	Dark Bandai Namco Logo-139-1-0-1556525582.rar	Dark Intro Logo	A dark startup logo instead of the white one

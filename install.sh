@@ -142,6 +142,8 @@ cp -c -R "$DUMP/RomFS" "$R/romfs" 2>/dev/null || { say "   (RomFS on another vol
 cp "$GP"/*.tsv "$GP/dmsh_chain.h" "$R/games/$TITLE/"
 # PC mod converter (the launcher runs it on each mod added: tools/dsr-mods/port_mod.py, needs numpy etcpak texture2ddecoder for textures)
 rm -rf "$R/tools"; mkdir -p "$R/tools"; cp -R "$HERE/tools/dsr-mods" "$HERE/tools/dsr-pc-textures" "$R/tools/"
+# Recommended mod pack: the list and the PC files of the mods whose authors allow re-upload (credited in the launcher); converted on this Mac at first use
+cp -R "$HERE/mods" "$OUT/Contents/Resources/pack"
 $PY -c "import sys; print(sys.executable)" > "$R/tools/python"
 if [ -n "$PCG" ]; then   # PC textures from the user's PC copy (never shipped): rebuilt Switch archives + index, read by the launcher
   [ -d "$PCG/chr" ] && [ -d "$PCG/map" ] || die "--pc-game: $PCG must hold chr/ and map/ (the PC game folder)"

@@ -1,5 +1,5 @@
 """Port a Dark Souls Remastered PC mod to the Switch files the Mac app runs.
-usage: python3 -I port_mod.py <mod folder> <RomFS> <out folder>
+usage: python3 -I port_mod.py [--base <folder of converted files to merge onto>] <mod folder> <RomFS> <out folder>
 The PC files of a Nexus mod do not load on the Switch build: archives use other flags and names (BND3 64-bit offsets, INTERROOT_ns64), textures are
 Tegra block-linear with an NVN header, and whole files carry PC-only content. Each mod file is merged into the matching Switch file instead:
   msg/<LANG>/*.msgbnd.dcx    text tables: every entry the mod changes, by id, into the Switch tables (FMG)
@@ -56,16 +56,24 @@ def leaf(n): return n.replace('/', '\\').split('\\')[-1].lower()
 PATCH_OF = {10: 111, 11: 115, 12: 117, 13: 113, 14: 118, 18: 119, 19: 120, 20: 110, 21: 114, 22: 116, 23: 112, 24: 100, 25: 106, 26: 108, 27: 109, 29: 105,
             30: 101, 78: 102, 92: 103, 1: 104, 2: 107, 80: 121, 79: 122, 77: 123, 76: 124}
 
+# Tables whose PC and Switch text differ by platform, not by mod: system messages, platform tags, display tags, key guide and button-assign help.
+# A mod that ships the whole PC menu.msgbnd (Better Bonfires) would otherwise put keyboard prompts and Windows messages into the Switch game.
+PLATFORM_TABLES = {79, 80, 90, 91, 92, 103, 121, 122}
+# Interface tables (event text, in-game menu, general menu text, menu others, dialogue): a mod that ships the whole PC file also carries the PC
+# wording of every existing line (Better Bonfires: lost <?winStreakNum?> tags, older Battle of Stoicism strings). Only the lines it adds are taken.
+ADD_ONLY_TABLES = {30, 70, 76, 77, 78, 101, 102, 123, 124}
 def msg_changes(sw_tables, pc):
-    """{table id: {entry id: text}} the PC msgbnd changes compared with the Switch tables"""
+    """{table id: {entry id: text}} the PC msgbnd changes compared with the Switch tables (platform tables left alone)"""
     _, p = undcx(pc); ch = {}
     for e, (n, x) in zip(bnd3_parse(p)[1], bnd3_files(p)):
         tid = e.get('id')
+        if tid in PLATFORM_TABLES: continue
         try: t = fmg.parse(x)
         except Exception: continue
         ref = sw_tables.get(tid)
         if ref is None: continue
         d = {i: v for i, v in t.items() if ref.get(i, 0) != v and v is not None}
+        if tid in ADD_ONLY_TABLES: d = {i: v for i, v in d.items() if not ref.get(i)}   # interface tables: only the mod's new lines, never the PC wording of existing ones
         if d:
             ch.setdefault(tid, {}).update(d)
             if tid in PATCH_OF and PATCH_OF[tid] in sw_tables: ch.setdefault(PATCH_OF[tid], {}).update({i: v for i, v in d.items() if sw_tables[PATCH_OF[tid]].get(i, 0) != v})
@@ -247,12 +255,16 @@ def mod_files(root):
             elif f.lower() == 'frpg_main.fsb': out.append(('sound/frpg_main.fsb', full))   # PC sound bank (DS3 Sound Mod ships it bare, next to its .bak)   # loose character file (Modern Roll ships c0000.anibnd.dcx bare)
     return out
 
-def main(mod, R, out):
+def main(mod, R, out, base=None):
+    """base: a folder of already converted files (earlier mods in a stack, archive-path layout); this mod merges into those instead of the
+    pristine Switch files, so two mods that change the same archive (menu textures, menu text) both land"""
     rom = Rom(R); rep = []; written = {}
     def put(path, data):
         written[path] = data
     def sw(path):
         if path in written: return written[path]
+        if base and os.path.isfile(os.path.join(base, path)):
+            with open(os.path.join(base, path), 'rb') as f: return f.read()
         return rom.get('/' + path)
     loose = {}   # archive path -> {texture name: dds}
     chrtex = {}  # chr/c#### -> {texture name: dds}, for characters whose textures sit in a .chrtpfbdt
@@ -274,8 +286,8 @@ def main(mod, R, out):
                 if rom.get('/' + mp4) is None and not os.path.exists(os.path.join(R, mp4)): rep.append((rel, 'skipped', 'the Switch game has no such movie')); continue
                 put(mp4, bik_to_mp4(full)); rep.append((rel, 'ported', f'movie re-encoded to {mp4} (H.264, no sound)')); continue
             if low == 'sound/frpg_main.fsb':   # PC FSB4 (MP3) bank -> the Switch FMOD Studio bank (FSB5, FADPCM); the .bak beside it, when shipped, is the PC original
-                bak = full + '.bak'; base = open(bak, 'rb').read() if os.path.exists(bak) else None
-                new, names = fsb.port_fsb4(d, rom.get('/sound/frpg_main.bank'), base)
+                bak = full + '.bak'; pc_orig = open(bak, 'rb').read() if os.path.exists(bak) else None
+                new, names = fsb.port_fsb4(d, sw('sound/frpg_main.bank'), pc_orig)
                 if new is None: rep.append((rel, 'unchanged', 'no sound differs')); continue
                 put('sound/frpg_main.bank', new); rep.append((rel, 'ported', f'{len(names)} sounds re-encoded into sound/frpg_main.bank')); continue
             s = sw(rel)
@@ -340,7 +352,7 @@ def main(mod, R, out):
         except Exception as ex: rep.append((arc, 'failed', repr(ex)[:200]))
     for folder, texs in chrtex.items():
         try:
-            arc = folder + '.chrbnd.dcx'; hs, cb = undcx(rom.get('/' + arc)); bdt = rom.get('/' + folder + '.chrtpfbdt')
+            arc = folder + '.chrbnd.dcx'; hs, cb = undcx(sw(arc)); bdt = sw(folder + '.chrtpfbdt')
             files = bnd3_files(cb); k = next(i for i, (n, _) in enumerate(files) if n.lower().endswith('.chrtpfbhd')); bhd = files[k][1]
             inner = bnd3_files(bhd, bdt); outs = []; notes = []
             for nm, x in inner:
@@ -356,9 +368,9 @@ def main(mod, R, out):
     for mdir, texs in maptex.items():
         left = dict(texs); area = mdir.rsplit('/', 1)[1]
         for k in range(10):
-            bhd_p = f'{mdir}/{area}_{k:04d}.tpfbhd'; bhd = rom.get('/' + bhd_p)
+            bhd_p = f'{mdir}/{area}_{k:04d}.tpfbhd'; bhd = sw(bhd_p)
             if bhd is None: continue
-            bdt = rom.get('/' + bhd_p[:-3] + 'bdt'); files = bnd3_files(bhd, bdt); outs = []; notes = []
+            bdt = sw(bhd_p[:-3] + 'bdt'); files = bnd3_files(bhd, bdt); outs = []; notes = []
             for nm, x in files:
                 tn = re.sub(r'\.tpf(\.dcx)?$', '', leaf(nm)) if re.search(r'\.tpf(\.dcx)?$', leaf(nm)) else None
                 hit = {t: left[t] for t in left if tn and t == tn.lower()}
@@ -377,5 +389,7 @@ def main(mod, R, out):
     return rep
 
 if __name__ == '__main__':
-    if len(sys.argv) != 4: sys.exit(__doc__)
-    for r in main(*sys.argv[1:]): print('\t'.join(r))
+    a = sys.argv[1:]; base = None
+    if len(a) == 5 and a[0] == '--base': base = a[1]; a = a[2:]
+    if len(a) != 3: sys.exit(__doc__)
+    for r in main(*a, base=base): print('\t'.join(r))
