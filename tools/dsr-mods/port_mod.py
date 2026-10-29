@@ -255,6 +255,7 @@ def main(mod, R, out):
         if path in written: return written[path]
         return rom.get('/' + path)
     loose = {}   # archive path -> {texture name: dds}
+    chrtex = {}  # chr/c#### -> {texture name: dds}, for characters whose textures sit in a .chrtpfbdt
     maptex = {}  # map/mXX -> {texture name: dds}: PC and Switch spread a map's textures over mXX_0000..3 differently, so each goes where the Switch has it
     for rel, full in sorted(mod_files(mod)):
         low = rel.lower(); d = open(full, 'rb').read()
@@ -264,6 +265,8 @@ def main(mod, R, out):
             if low.endswith('.dds'):
                 folder, name = rel.rsplit('/', 1)
                 arc = next((folder + s for s in TEX_ARCHIVES if rom.get('/' + folder + s) is not None), None)
+                if arc is not None and arc.endswith('.chrbnd.dcx') and rom.get('/' + folder + '.chrtpfbdt') is not None:
+                    chrtex.setdefault(folder, {})[name[:-4].lower()] = d; continue   # character textures in c####.chrtpfbhd (inside the chrbnd) + c####.chrtpfbdt
                 if arc is None: rep.append((rel, 'skipped', f'no Switch archive {folder}.*')); continue
                 loose.setdefault(arc, {})[name[:-4].lower()] = d; continue
             if low.startswith(('movww/', 'movjp/')) and low.endswith('.bik'):   # PC Bink movie -> the Switch H.264 mp4 of the same name (no audio track, like the Switch's)
@@ -335,6 +338,21 @@ def main(mod, R, out):
                 if n not in found: notes.append(f'{n}: no such texture in {arc}')
             rep.append((arc, 'ported' if new is not None else 'failed', '; '.join(notes)))
         except Exception as ex: rep.append((arc, 'failed', repr(ex)[:200]))
+    for folder, texs in chrtex.items():
+        try:
+            arc = folder + '.chrbnd.dcx'; hs, cb = undcx(rom.get('/' + arc)); bdt = rom.get('/' + folder + '.chrtpfbdt')
+            files = bnd3_files(cb); k = next(i for i, (n, _) in enumerate(files) if n.lower().endswith('.chrtpfbhd')); bhd = files[k][1]
+            inner = bnd3_files(bhd, bdt); outs = []; notes = []
+            for nm, x in inner:
+                tn = re.sub(r'\.tpf(\.dcx)?$', '', leaf(nm))
+                r = redo(x, {tn: texs[tn]}, notes) if tn in texs else None
+                outs.append(r if r is not None else x)
+            if notes:
+                h2, b2 = bhf3_rebuild(bhd, bdt, outs)
+                put(arc, redcx(hs, bnd3_rebuild(cb, [h2 if i == k else x for i, (_, x) in enumerate(files)]))); put(folder + '.chrtpfbdt', b2)
+            found = {n.split(':')[0].lower() for n in notes}
+            rep.append((folder + '.chrtpfbdt', 'ported' if notes else 'failed', '; '.join(notes + [f'{t}: no such texture' for t in texs if t not in found])[:400]))
+        except Exception as ex: rep.append((folder + '.chrtpfbdt', 'failed', repr(ex)[:200]))
     for mdir, texs in maptex.items():
         left = dict(texs); area = mdir.rsplit('/', 1)[1]
         for k in range(10):
