@@ -4,6 +4,7 @@ The PC files of a Nexus mod do not load on the Switch build: archives use other 
 Tegra block-linear with an NVN header, and whole files carry PC-only content. Each mod file is merged into the matching Switch file instead:
   msg/<LANG>/*.msgbnd.dcx    text tables: every entry the mod changes, by id, into the Switch tables (FMG)
   param/**/*.parambnd.dcx    params: rows the mod changes, by row id, into the Switch params (same row layout required)
+  map/mXX/mXX_000N/*.dds     map textures (TPUP layout): into the Switch mXX_000N.tpfbhd/.tpfbdt that holds a texture of that name
   *.dds (loose, in a folder named after its archive: menu/menu_1/Menu08.dds) and PC *.tpf / *.tpf.dcx: textures into the Switch TPF entry of that name
   event/*.emevd.dcx          events: same format on both, used as they are (recompressed)
   sfx/*.ffxbnd.dcx            effects: the ones the mod removes (empty FFX) are emptied in the Switch archive; changed FFX are not converted
@@ -16,7 +17,7 @@ Output: a folder in archive-path layout for the launcher's overlay, and port.tsv
 import sys, os, re, struct, zlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, '..', 'dsr-pc-textures'))
-from fsfmt import fs_hash, bhd5_entries, bnd3_parse, bnd3_files, bnd3_rebuild, tpf_parse, dds_info
+from fsfmt import fs_hash, bhd5_entries, bnd3_parse, bnd3_files, bnd3_rebuild, bhf3_rebuild, tpf_parse, dds_info
 from nvntex import read_entry, build_entry, tpf_rebuild
 import fmg, esd, tae, msb, fsb, numpy as np
 
@@ -244,9 +245,12 @@ def main(mod, R, out):
         if path in written: return written[path]
         return rom.get('/' + path)
     loose = {}   # archive path -> {texture name: dds}
+    maptex = {}  # map/mXX -> {texture name: dds}: PC and Switch spread a map's textures over mXX_0000..3 differently, so each goes where the Switch has it
     for rel, full in sorted(mod_files(mod)):
         low = rel.lower(); d = open(full, 'rb').read()
         try:
+            if low.endswith('.dds') and re.fullmatch(r'map/m\d\d/m\d\d_\d{4}', rel.rsplit('/', 1)[0].lower()):   # map texture (TPUP layout map/m10/m10_0001/x.dds)
+                maptex.setdefault(rel.rsplit('/', 2)[0], {})[rel.rsplit('/', 1)[1][:-4].lower()] = d; continue
             if low.endswith('.dds'):
                 folder, name = rel.rsplit('/', 1)
                 arc = next((folder + s for s in TEX_ARCHIVES if rom.get('/' + folder + s) is not None), None)
@@ -320,6 +324,22 @@ def main(mod, R, out):
                 if n not in found: notes.append(f'{n}: no such texture in {arc}')
             rep.append((arc, 'ported' if new is not None else 'failed', '; '.join(notes)))
         except Exception as ex: rep.append((arc, 'failed', repr(ex)[:200]))
+    for mdir, texs in maptex.items():
+        left = dict(texs); area = mdir.rsplit('/', 1)[1]
+        for k in range(10):
+            bhd_p = f'{mdir}/{area}_{k:04d}.tpfbhd'; bhd = rom.get('/' + bhd_p)
+            if bhd is None: continue
+            bdt = rom.get('/' + bhd_p[:-3] + 'bdt'); files = bnd3_files(bhd, bdt); outs = []; notes = []
+            for nm, x in files:
+                tn = re.sub(r'\.tpf(\.dcx)?$', '', leaf(nm)) if re.search(r'\.tpf(\.dcx)?$', leaf(nm)) else None
+                hit = {t: left[t] for t in left if tn and t == tn.lower()}
+                r = redo(x, hit, notes) if hit else None
+                outs.append(r if r is not None else x)
+                if r is not None: left.pop(tn.lower(), None)
+            if any(o is not x for o, (_, x) in zip(outs, files)):
+                h2, b2 = bhf3_rebuild(bhd, bdt, outs); put(bhd_p, h2); put(bhd_p[:-3] + 'bdt', b2)
+                rep.append((bhd_p, 'ported', f'{sum(o is not x for o, (_, x) in zip(outs, files))} map textures: ' + '; '.join(notes)[:300]))
+        for t in left: rep.append((f'{mdir}/{t}.dds', 'skipped', 'no Switch map texture of that name'))
     for path, data in written.items():
         dst = os.path.join(out, path); os.makedirs(os.path.dirname(dst), exist_ok=True); open(dst, 'wb').write(data)
     os.makedirs(out, exist_ok=True)
