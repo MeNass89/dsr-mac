@@ -105,9 +105,10 @@ def param_rows(d):
     return {r[0]: r[1] for r in rows}, size
 
 # DrawParam rows whose PC layout is wider than the Switch one (learned on all 9 areas of Visual Overhaul against the Switch rows):
-#   ToneMapBank 48 -> 40: four u16 settings at the start are u8 on Switch, and the PC adds one float at the end (no Switch field)
 #   ToneCorrectBank 36 -> 32: the PC adds one float at the end
-ROW_TO_SWITCH = {(48, 40): lambda r: bytes(r[0:8:2]) + r[8:44], (36, 32): lambda r: r[:32]}
+# ToneMapBank (PC 48, Switch 40) is not ported: the PC exposure values, converted field by field, wash the Switch picture out to white (Firelink, Visual
+# Overhaul: white sky, pale ground; the game's own tone map under the mod's fog, light and colour rows looks as the mod intends)
+ROW_TO_SWITCH = {(36, 32): lambda r: r[:32]}
 def port_param(sw, pc, orig=None):
     """orig: the game's own param; a row equal to it (after layout conversion) is one the mod leaves alone, so a mod applied earlier keeps it"""
     srows, ss = param_rows(sw); prows, ps = param_rows(pc)
