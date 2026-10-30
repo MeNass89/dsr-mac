@@ -21,7 +21,7 @@ setopt pipefail
 HERE=${0:A:h}
 TITLE=01004AB00A260000
 NX_REPO=${NX_REPO:-https://github.com/MeNass89/nxnative.git}
-NX_COMMIT=${NX_COMMIT:-479a44d318d8f663a7768b3b549da4a500bdd954}
+NX_COMMIT=${NX_COMMIT:-68e05c26cc4957c6ad8908df12b6a5425b79f802}
 CHAIN=e74e5b975ca2
 OUT="$HOME/Applications/Dark Souls Remastered.app"; DATA="$HOME/Library/Application Support/nxnative/DarkSoulsRemastered/game"; WORK="$HOME/Library/Caches/dsr-mac-build"
 MODES=(60 90 120 2k60 2k90 2k120 4k60 4k90 4k120); QUICK=0; KEEP=0; DUMP=; BASE=; UPD=; KEYS=; NX=; PCG=
@@ -132,7 +132,7 @@ logrun launcher swiftc -O -parse-as-library "$HERE/launcher/Launcher.swift" -o "
 # ---- 9. the app, and the game data next to it ----
 # The data stays outside the app: macOS checks every byte of a freshly signed bundle before its first launch, which took 16-34 min with 4 GB inside.
 say "9/9 assembling $OUT (game data in $DATA)"
-R=$DATA; rm -rf "$OUT" "$R"/{romfs,msl,games,pctextures,glyphs,main*}(N); mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources" "$R/games/$TITLE"
+R=$DATA; rm -rf "$OUT" "$R"/{romfs,msl,games,pctextures,glyphs,tools,main*}(N); mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources" "$R/games/$TITLE"
 FREE=$(df -g "$R" | awk 'NR==2{print $4}'); [ "$FREE" -ge 5 ] || die "need about 5 GB free for the game data in $R (have ${FREE} GB)"
 print -r -- "$R" > "$OUT/Contents/Resources/game-path"
 cp "$NX/dm/host/dmhost" "$WORK/DarkSouls" "$OUT/Contents/MacOS/"
@@ -140,19 +140,24 @@ for mode in $MODES; do cp -c -R "$PT/main$mode" "$R/main$mode" 2>/dev/null || cp
 cp -c -R "$WORK/shader/cache" "$R/msl" 2>/dev/null || cp -R "$WORK/shader/cache" "$R/msl"
 cp -c -R "$DUMP/RomFS" "$R/romfs" 2>/dev/null || { say "   (RomFS on another volume: copying 3.8 GB)"; cp -R "$DUMP/RomFS" "$R/romfs"; }
 cp "$GP"/*.tsv "$GP/dmsh_chain.h" "$R/games/$TITLE/"
+# PC mod converter (the launcher runs it on each mod added: tools/dsr-mods/port_mod.py, needs numpy etcpak texture2ddecoder for textures)
+rm -rf "$R/tools"; mkdir -p "$R/tools"; cp -R "$HERE/tools/dsr-mods" "$HERE/tools/dsr-pc-textures" "$R/tools/"
+# Recommended mod pack: the list and the PC files of the mods whose authors allow re-upload (credited in the launcher); converted on this Mac at first use
+cp -R "$HERE/mods" "$OUT/Contents/Resources/pack"
+$PY -c "import sys; print(sys.executable)" > "$R/tools/python"
 if [ -n "$PCG" ]; then   # PC textures from the user's PC copy (never shipped): rebuilt Switch archives + index, read by the launcher
   [ -d "$PCG/chr" ] && [ -d "$PCG/map" ] || die "--pc-game: $PCG must hold chr/ and map/ (the PC game folder)"
   $PY -c 'import numpy, PIL, etcpak, texture2ddecoder' 2>/dev/null || die "PC textures need: $PY -m pip install numpy pillow etcpak texture2ddecoder"
   say "   PC textures from $PCG (about 16 min)"
-  logrun pctex_convert env DSR_PCTEX_NORMALS=bc7 $PY -I "$HERE/tools/dsr-pc-textures/convert.py" "$DUMP/RomFS" "$PCG" "$WORK/pctex-mod" --workers 6
-  logrun pctex_pack $PY -I "$HERE/tools/dsr-pc-textures/pack.py" "$DUMP/RomFS" "$WORK/pctex-mod" "$R/pctextures"
+  logrun pctex_convert env DSR_PCTEX_NORMALS=bc7 $PY "$HERE/tools/dsr-pc-textures/convert.py" "$DUMP/RomFS" "$PCG" "$WORK/pctex-mod" --workers 6
+  logrun pctex_pack $PY "$HERE/tools/dsr-pc-textures/pack.py" "$DUMP/RomFS" "$WORK/pctex-mod" "$R/pctextures"
   rm -rf "$WORK/pctex-mod"
 fi
 # Button pictures for PlayStation / Xbox controllers (Settings > Controls > Button prompts): the game's own font and menu archives,
 # redrawn from your RomFS (nothing shipped). Optional: skipped with a note when the Python modules are missing (Switch prompts only).
 if $PY -c 'import numpy, PIL, scipy, etcpak' 2>/dev/null; then
   say "   button prompts (PlayStation / Xbox sets, about 10 min)"
-  rm -rf "$WORK/glyphs"; logrun glyphs $PY -I "$HERE/tools/dsr-glyphs/dsr_glyphs.py" "$DUMP/RomFS" "$WORK/glyphs"
+  rm -rf "$WORK/glyphs"; logrun glyphs $PY "$HERE/tools/dsr-glyphs/dsr_glyphs.py" "$DUMP/RomFS" "$WORK/glyphs"
   mkdir -p "$R/glyphs"; for g in ps-position ps-label xbox-position xbox-label; do
     [ -d "$WORK/glyphs/$g" ] || die "button prompt set $g was not built (log: $LOGS/glyphs.log)"; cp -R "$WORK/glyphs/$g" "$R/glyphs/$g"; done
   rm -rf "$WORK/glyphs"

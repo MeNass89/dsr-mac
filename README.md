@@ -56,8 +56,8 @@ took about 1 minute on the internal disk and up to 34 minutes on an external dis
 
 The launcher window opens before the game (hold **⌥ Option** at launch to see it again if you chose to skip it).
 
-- **Graphics:** internal resolution 1080p / 1440p / 4K, frame rate 60 / 90 / 120, window or fullscreen
-  (⌘F in game), Metal performance overlay. The game keeps normal speed below the chosen rate.
+- **Graphics:** internal resolution 1080p / 1440p / 4K, frame rate 60 / 90 / 120, the game opens in a
+  window and ⌘F goes fullscreen, Metal performance overlay. The game keeps normal speed below the chosen rate.
 - **Controls:** any controller macOS knows (Xbox, PlayStation, Switch Pro), buttons by position or by label.
   Keyboard: WASD move, arrows D-pad, J/K/U/I = A/B/X/Y, Q/E = L/R, Z/C = ZL/ZR, Return = +, Tab = −. ⌘Q quits.
 - **Button prompts** (Controls): Auto / Switch / PlayStation / Xbox. The buttons drawn in the game's menus and
@@ -176,8 +176,8 @@ Confidentialité et sécurité → **Ouvrir quand même**.
 
 La fenêtre du lanceur s'ouvre avant le jeu (maintenez **⌥ Option** au lancement pour la revoir si vous l'avez masquée).
 
-- **Graphismes :** résolution interne 1080p / 1440p / 4K, 60 / 90 / 120 images/s, fenêtre ou plein écran (⌘F en
-  jeu), surcouche de performance Metal. Sous le taux choisi, le jeu garde sa vitesse normale.
+- **Graphismes :** résolution interne 1080p / 1440p / 4K, 60 / 90 / 120 images/s, le jeu s'ouvre en fenêtre et
+  ⌘F passe en plein écran, surcouche de performance Metal. Sous le taux choisi, le jeu garde sa vitesse normale.
 - **Commandes :** toute manette reconnue par macOS (Xbox, PlayStation, Switch Pro), boutons par position ou par
   étiquette. Clavier : ZQSD/WASD selon la disposition pour bouger, flèches = croix, J/K/U/I = A/B/X/Y, Q/E = L/R,
   Z/C = ZL/ZR, Entrée = +, Tab = −. ⌘Q pour quitter.

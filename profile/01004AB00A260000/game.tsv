@@ -56,3 +56,4 @@ shader_glslc_capture	on
 # ---- After the rewrite ----
 # the rewritten modules are larger than the default 64 MB of used memory (Age of Calamity: 66.6 MB → 72 MB)
 mem_used	0x6e00000
+ui_canvas	1920x1080
