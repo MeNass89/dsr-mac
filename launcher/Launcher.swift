@@ -342,7 +342,6 @@ final class Game: ObservableObject {
         if s.fps != 60 { e["DM_PRESENT_LINK"] = "0" }   // classic present: the display-link path holds the game at 60
         if s.fps != 60 && e["DM_SPIN_US"] == nil { e["DM_SPIN_US"] = "30" }   // above 60 the game's threads hand work over many times per 8.3 ms frame: a 30 µs spin before sleeping keeps them on time (M2 windowless at 120: frames > 12 ms 6.2 -> 3.9 %, p99 25.7 -> 15.8 ms; 60 warps and 20 Continue boots without a hang)
         if s.resolution != 1080 { e["DM_MEM_RESERVE"] = "0x200000000"; e["DM_APP_POOL"] = "0x1A0000000" }   // bigger targets need a larger guest heap and allocator pool
-        if s.fullscreen { e["DM_FULLSCREEN"] = "1" }
         if !s.colorspace.isEmpty { e["DM_LAYER_COLORSPACE"] = s.colorspace }
         if s.record { e["DM_PADLOG"] = "1"; e["DM_KEYLOG"] = "1" }
         if s.perfOverlay { e["MTL_HUD_ENABLED"] = "1" }
@@ -447,7 +446,7 @@ struct PlayPane: View {
     @ObservedObject var game: Game
     var summary: String {
         let r = s.resolution == 2160 ? "4K (3840×2160)" : s.resolution == 1440 ? "1440p (2560×1440)" : "1080p (1920×1080)"
-        return "\(r) · \(s.fps) \(T("fps", "i/s")) · \(s.fullscreen ? T("Fullscreen", "Plein écran") : T("Window", "Fenêtre"))"
+        return "\(r) · \(s.fps) \(T("fps", "i/s"))"
     }
     var activeMods: Int { s.modOrder.filter { s.mods[$0] == true }.count }
     var body: some View {
@@ -499,9 +498,6 @@ struct GraphicsPane: View {
                 }
                 Section(T("Frame rate", "Images par seconde"), note: fpsNote) {
                     Picker("", selection: $s.fps) { Text("60").tag(60); Text("90").tag(90); Text("120").tag(120) }.pickerStyle(.segmented).labelsHidden().frame(width: 240)
-                }
-                Section(T("Display", "Affichage")) {
-                    Picker("", selection: $s.fullscreen) { Text(T("Window", "Fenêtre")).tag(false); Text(T("Fullscreen", "Plein écran")).tag(true) }.pickerStyle(.segmented).labelsHidden().frame(width: 240)
                 }
                 Section(T("Textures", "Textures"), note: texturesNote) {
                     Picker("", selection: $s.textures) { Text("Switch").tag("switch"); Text(T("PC (from your PC copy)", "PC (depuis votre copie PC)")).tag("pc") }
